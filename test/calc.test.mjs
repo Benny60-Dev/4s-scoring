@@ -66,4 +66,16 @@ const R2 = C.computeRound({round, course, entries, players, scores: scores.filte
 const C2 = R2.rows.find(x=>x.player_id==='c'); // 37 on front (par 36) with bumps on si<=1 (hole1) -> +1-1 = 0
 assert.equal(C2.played, 9); assert.equal(C2.netToPar, 0);
 assert.equal(R2.net[0].rows.find(x=>x.r.player_id==='c').purse, 0); // no money until finished
+// DNF: third guy quits after 9 holes -> not ranked, flight money pays the rest, skins only count his front nine
+const sc9 = scores.filter(s => !(s.player_id === 'x' && s.hole > 9));
+const R3 = C.computeRound({ round: { settings: { ...round.settings, dnf: ['x'] } }, course, entries, players, scores: sc9 });
+const n3 = R3.net[0];
+const x3 = n3.rows.find(r => r.r.player_id === 'x'); assert.equal(x3.pos, 'DNF'); assert.equal(x3.purse, 0);
+assert.equal(n3.rows[n3.rows.length - 1].r.player_id, 'x');               // DNF at the bottom
+const c3 = n3.rows.find(r => r.r.player_id === 'c'); assert.equal(c3.pos, '1'); assert.equal(c3.purse, 40); // money pays without him
+assert.equal(R3.gSkins.pendingHoles, 0);                                   // back nine skins don't wait for him
+assert.ok(R3.gSkins.list.find(s => s.r.player_id === 'x').details.includes('Birdie on 5')); // keeps his front-nine skin
+// without the DNF mark the same scores stall the flight and the skins
+const R4 = C.computeRound({ round, course, entries, players, scores: sc9 });
+assert.equal(R4.net[0].allDone, false); assert.equal(R4.gSkins.pendingHoles, 9);
 console.log('all calc tests passed');

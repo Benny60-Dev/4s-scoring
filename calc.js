@@ -111,6 +111,7 @@ export function computeRound({ round, course, entries, players, scores }) {
   const S = settingsOf(round);
   const pmap = new Map(players.map(p => [p.id, p]));
   const parTotal = course.holes.reduce((a, h) => a + num(h.par), 0);
+  const dnfSet = new Set((S.dnf || []).map(String));
   const rows = entries.map(e => {
     const p = pmap.get(e.player_id) || { name: '(unknown)' };
     const holes = Array(18).fill(null);
@@ -133,7 +134,7 @@ export function computeRound({ round, course, entries, players, scores }) {
     const netToPar = ch === null ? null : (done ? round1(gross - ch - parTotal) : grossToPar - bumpsPlayed);
     const deuces = holes.filter(v => v === 2).length;
     return {
-      player_id: e.player_id, name: p.name, entry: e, holes, played, done, gross, out, inn,
+      player_id: e.player_id, name: p.name, entry: e, holes, played, done, dnf: dnfSet.has(String(e.player_id)), gross, out, inn,
       grossToPar, ch, strokes, bumps, skinBumps, netTotal, netToPar, deuces, problem: ch === null ? (idx === null ? 'No index' : 'No tee rating') : null,
     };
   });
@@ -141,15 +142,15 @@ export function computeRound({ round, course, entries, players, scores }) {
 
   const flights = [...new Set(rows.map(r => r.entry.flight))].sort((a, b) => a - b);
   // Lower to-par first; then whoever has played more holes; players with no score (or no handicap) last.
-  const sortKey = (r, key) => (r.played === 0 || r[key] === null ? 1e9 : r[key] * 1000 - r.played);
+  const sortKey = (r, key) => (r.dnf ? 2e9 - r.played : r.played === 0 || r[key] === null ? 1e9 : r[key] * 1000 - r.played);
 
   function board(game) {
     const key = game === 'gross' ? 'grossToPar' : 'netToPar';
     return flights.map(f => {
       const inF = rows.filter(r => r.entry.flight === f);
       const sorted = inF.slice().sort((a, b) => sortKey(a, key) - sortKey(b, key) || a.name.localeCompare(b.name));
-      const eligible = sorted.filter(r => r.entry.game === game && r.played > 0);
-      const allDone = inF.filter(r => r.entry.game === game).every(r => r.done);
+      const eligible = sorted.filter(r => r.entry.game === game && r.played > 0 && !r.dnf);
+      const allDone = inF.filter(r => r.entry.game === game && !r.dnf).every(r => r.done);
       const finished = eligible.filter(r => r.done);
       // Positions: live by to-par; money only once every player in this game and flight has finished.
       const scoreKey = game === 'gross' ? 'grossToPar' : 'netToPar';
@@ -159,6 +160,7 @@ export function computeRound({ round, course, entries, players, scores }) {
         allDone,
         rows: sorted.map(r => {
           const pl = r.entry.game === game && r.played > 0 ? places.get(r.player_id) : null;
+          if (r.dnf) return { r, pos: 'DNF', purse: 0 };
           return { r, pos: pl ? pl.pos : '--', purse: pl && allDone && finished.includes(r) ? pl.amount : 0 };
         }),
       };
@@ -188,8 +190,10 @@ export function computeRound({ round, course, entries, players, scores }) {
     let pendingHoles = 0;
     for (let i = 0; i < 18; i++) {
       if (!ins.length) break;
-      if (ins.some(r => r.holes[i] === null)) { pendingHoles++; continue; }
-      const vals = ins.map(r => ({ r, v: kind === 'gross' ? r.holes[i] : r.holes[i] - r.skinBumps[i] }));
+      const onHole = ins.filter(r => !(r.dnf && r.holes[i] === null));
+      if (!onHole.length) continue;
+      if (onHole.some(r => r.holes[i] === null)) { pendingHoles++; continue; }
+      const vals = onHole.map(r => ({ r, v: kind === 'gross' ? r.holes[i] : r.holes[i] - r.skinBumps[i] }));
       const best = Math.min(...vals.map(x => x.v));
       const winners = vals.filter(x => x.v === best);
       if (winners.length === 1) won.push({ hole: i + 1, r: winners[0].r, v: best, par: num(course.holes[i].par) });
@@ -299,4 +303,69 @@ export function matchRoster(rows, players) {
     else status = 'change';
     return { ...r, player: p, how, old, status, addGhin: !!(p && r.ghin && !p.ghin) };
   });
+}
+
+// ---------- spoken scores ----------
+// "Benny 5, Omar four, Dale bogey, Tony par" -> strokes for each player in the group.
+const NUMWORDS = { zero: 0, one: 1, won: 1, two: 2, to: 2, too: 2, three: 3, tree: 3, four: 4, for: 4, fore: 4, five: 5, six: 6, sex: 6, seven: 7, eight: 8, ate: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+const RELWORDS = { par: 0, birdie: -1, birdy: -1, eagle: -2, bogey: 1, bogie: 1, boogie: 1, double: 2, triple: 3, quad: 4 };
+function lev(a, b) {
+  const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 1; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[m][n];
+}
+// players: [{player_id, name}] in group order. Returns {hole, scores:[{player_id, name, strokes}], unknown:[words]}
+export function parseSpokenScores(text, players, par, holeCount = 18) {
+  let words = String(text || '').toLowerCase().replace(/[^a-z0-9+\s-]/g, ' ').split(/\s+/).filter(Boolean);
+  let hole = null;
+  const hi = words.findIndex((w, i) => w === 'hole' && i + 1 < words.length);
+  if (hi >= 0) {
+    const nx = words[hi + 1]; const n = /^\d+$/.test(nx) ? Number(nx) : NUMWORDS[nx];
+    if (n >= 1 && n <= holeCount) { hole = n; words.splice(hi, 2); }
+  }
+  const keys = players.map(p => {
+    const parts = normName(p.name).split(' ').filter(Boolean);
+    return { p, first: parts[0] || '', last: parts[parts.length - 1] || '' };
+  });
+  const firstCount = {}; keys.forEach(k => { firstCount[k.first] = (firstCount[k.first] || 0) + 1; });
+  function whoIs(w, next) {
+    const sound = x => x.replace(/(ie|ey|ee|i)$/, 'y').replace(/ph/g, 'f');
+    const close = (a, b) => a === b || sound(a) === sound(b) || (a.length >= 4 && b.length >= 4 && lev(sound(a), sound(b)) <= 1);
+    let hits = keys.filter(k => close(w, k.last) && k.last !== k.first);
+    if (hits.length === 1) return { k: hits[0], used: 1 };
+    hits = keys.filter(k => close(w, k.first));
+    if (hits.length > 1 && next) { const h2 = hits.filter(k => close(next, k.last)); if (h2.length === 1) return { k: h2[0], used: 2 }; }
+    if (hits.length === 1) return { k: hits[0], used: hits[0].last && next && close(next, hits[0].last) ? 2 : 1 };
+    return null;
+  }
+  function scoreOf(w, next) {
+    if (/^\d{1,2}$/.test(w)) return { v: Number(w), used: 1 };
+    if (w in NUMWORDS) return { v: NUMWORDS[w], used: 1 };
+    if (w in RELWORDS) {
+      let rel = RELWORDS[w], used = 1;
+      if ((w === 'double' || w === 'triple') && (next === 'bogey' || next === 'bogie' || next === 'boogie')) used = 2;
+      if (w === 'double' && next === 'eagle') { rel = -3; used = 2; }
+      return { v: par + rel, used };
+    }
+    return null;
+  }
+  const found = new Map(), unknown = [], loose = [];
+  let cur = null;
+  for (let i = 0; i < words.length;) {
+    const w = words[i], nx = words[i + 1];
+    const s = scoreOf(w, nx);
+    // "to"/"for" right after a name are fillers only when a real score follows
+    if (s && cur && (w === 'to' || w === 'for' || w === 'too') && nx && scoreOf(nx, words[i + 2]) && !(nx in NUMWORDS && NUMWORDS[nx] === s.v)) { i++; continue; }
+    if (s && cur) { found.set(cur.p.player_id, { player_id: cur.p.player_id, name: cur.p.name, strokes: s.v }); cur = null; i += s.used; continue; }
+    if (s && !cur) { loose.push(s.v); i += s.used; continue; }
+    const who = whoIs(w, nx);
+    if (who) { cur = who.k; i += who.used; continue; }
+    if (!['and', 'got', 'had', 'made', 'shot', 'a', 'an', 'the', 'is', 'was', 'has', 'with', 'on', 'he', 'then', 'score', 'scores', 'okay', 'ok', 'um', 'uh'].includes(w)) unknown.push(w);
+    i++;
+  }
+  // Just numbers, one per player in group order.
+  if (!found.size && loose.length === players.length) players.forEach((p, i) => found.set(p.player_id, { player_id: p.player_id, name: p.name, strokes: loose[i] }));
+  const scores = players.map(p => found.get(p.player_id)).filter(Boolean).filter(s => s.strokes >= 1 && s.strokes <= 15);
+  return { hole, scores, unknown };
 }

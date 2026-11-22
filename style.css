@@ -129,3 +129,4 @@ h3{font-size:15px;margin:14px 0 8px}
 .biglogo{display:block;width:100%;max-width:320px;height:auto;margin:4px auto 14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 12px}
 
 textarea.in{resize:vertical;line-height:1.5}
+.linkbtn{background:none;border:0;padding:0;color:var(--give);font-weight:650;font-size:12.5px;text-decoration:underline;cursor:pointer}

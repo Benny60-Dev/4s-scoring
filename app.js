@@ -51,6 +51,7 @@ const st = {
   tab: LS.get('golf.tab') || 'gross', open: {},
   scoreCode: LS.get('golf.scoreCode') || '', adminCode: LS.get('golf.adminCode') || '',
   group: Number(LS.get('golf.group')) || null, hole: 1, saveMsg: '', bumpQuery: '',
+  voice: { mode: 'idle', text: '', live: '', parsed: null, msg: '' },
   admin: { tab: 'round', draft: null, msg: '', msgCls: '', armed: null, playersDraft: null, courseDraft: null, importing: false, importText: '', importAdd: new Set(), importRound: true },
 };
 let queue = [];
@@ -229,8 +230,8 @@ function flightBoards(game) {
       const r = x.r, key = game + ':' + r.player_id;
       const tp = game === 'gross' ? (r.played ? r.grossToPar : null) : (r.played ? r.netToPar : null);
       const tot = game === 'gross' ? (r.played ? r.gross : '') : (r.done ? C.fmt1(r.netTotal) : '');
-      h += '<tr class="row' + (x.pos === '--' ? ' ine' : '') + '" data-open="' + esc(key) + '"><td>' + esc(x.pos) + '</td><td class="l name">' + esc(r.name) +
-        (r.played && !r.done ? '<span class="thru">Thru ' + r.played + '</span>' : (!r.played ? '<span class="thru">Not started</span>' : '')) + '</td>' +
+      h += '<tr class="row' + (x.pos === '--' || x.pos === 'DNF' ? ' ine' : '') + '" data-open="' + esc(key) + '"><td>' + esc(x.pos) + '</td><td class="l name">' + esc(r.name) +
+        (r.dnf ? '<span class="thru" style="color:var(--give)">Did not finish' + (r.played ? ' (' + r.played + ' holes)' : '') + '</span>' : r.played && !r.done ? '<span class="thru">Thru ' + r.played + '</span>' : (!r.played ? '<span class="thru">Not started</span>' : '')) + '</td>' +
         '<td class="' + (tp !== null && tp < 0 ? 'under' : '') + '">' + (tp === null ? (r.problem && game === 'net' ? '<span class="small muted">' + esc(r.problem) + '</span>' : '') : C.fmtToPar(tp)) + '</td>' +
         '<td class="' + (game === 'net' && r.done && r.netTotal < st.calc.parTotal ? 'under' : '') + '">' + tot + '</td><td class="money">' + (x.purse ? C.money(x.purse) : '') + '</td></tr>';
       if (st.open[key]) h += '<tr class="scrow"><td colspan="5">' + scorecard(r) + '</td></tr>';
@@ -287,17 +288,23 @@ function scoreView() {
   const c = st.course, i = st.hole - 1, par = Number(c.holes[i].par);
   let h = '<div class="holehead"><button class="circ" data-hole-step="-1" aria-label="Previous hole">‹</button><div style="text-align:center"><div class="big">Hole ' + st.hole + '</div><div class="meta">Par ' + par + ' · Hcp ' + c.holes[i].si_m + '</div></div><button class="circ" data-hole-step="1" aria-label="Next hole">›</button></div>';
   h += '<div class="strip">' + c.holes.map((_, k) => {
-    const done = grp.rows.every(r => r.holes[k] !== null);
+    const done = grp.rows.every(r => r.holes[k] !== null || r.dnf);
     return '<button data-hole="' + (k + 1) + '" class="' + (k === i ? 'on' : done ? 'done' : '') + '">' + (k + 1) + '</button>';
   }).join('') + '</div>';
   grp.rows.forEach(r => {
+    if (r.dnf && r.holes[i] === null) {
+      h += '<div class="prow" style="opacity:.6"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m"><b style="color:var(--give)">DNF</b> · not playing' + (st.adminCode ? ' · <button class="linkbtn" data-dnf="' + r.player_id + '">Undo DNF</button>' : '') + '</div></div></div>';
+      return;
+    }
     const v = r.holes[i], b = r.bumps[i];
     const tp = r.played ? C.fmtToPar(r.grossToPar) : '';
     h += '<div class="prow"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m">' +
       (b > 0 ? '<span class="bd"></span>'.repeat(b) + ' ' + b + (b > 1 ? ' bumps' : ' bump') + ' here · ' : b < 0 ? '<span class="gv">gives 1 here</span> · ' : '') +
-      (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') + '</div></div>' +
+      (r.dnf ? '<b style="color:var(--give)">DNF</b> · ' : '') + (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') +
+      (st.adminCode ? ' · <button class="linkbtn" data-dnf="' + r.player_id + '">' + (r.dnf ? 'Undo DNF' : 'Mark DNF') + '</button>' : '') + '</div></div>' +
       '<div class="stepper"><button data-adj="-1" data-p="' + r.player_id + '" aria-label="One less">−</button><div class="val' + (v === null ? ' empty' : '') + '" data-setpar="' + r.player_id + '">' + (v === null ? 'tap' : v) + '</div><button data-adj="1" data-p="' + r.player_id + '" aria-label="One more">+</button></div></div>';
   });
+  h += voicePanel(grp);
   h += '<div class="status" id="savemsg">' + saveText() + '</div>';
   h += '<div class="row2" style="margin-top:6px"><button class="btn sec" data-groupclear="1">Change group</button><button class="btn sec" data-go="check">Card check</button>' +
     (st.hole < 18 ? '<button class="btn" data-hole-step="1">Next hole ›</button>' : '') + '</div>';
@@ -305,6 +312,93 @@ function scoreView() {
   return h;
 }
 
+const MIC = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="vertical-align:-4px;margin-right:6px"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>';
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+let recog = null;
+function voicePanel(grp) {
+  const V = st.voice;
+  const live = grp.rows.filter(r => !(r.dnf && r.holes[st.hole - 1] === null)); const names = (live.length ? live : grp.rows).map(r => r.name.split(' ')[0]).join(', ');
+  if (V.mode === 'idle') {
+    return '<button class="btn sec" id="voice" style="width:100%;margin:4px 0 2px">' + MIC + 'Say scores</button>' + (V.msg ? '<div class="status ok">' + esc(V.msg) + '</div>' : '');
+  }
+  let h = '<div class="card" style="border:2px solid var(--g2)">';
+  if (V.mode === 'listening') {
+    h += '<h3 style="margin-top:0">' + MIC + 'Listening…</h3><p class="small muted">Say each name and score, like “' + esc(grp.rows[0].name.split(' ')[0]) + ' 5, ' + esc((grp.rows[1] || grp.rows[0]).name.split(' ')[0]) + ' par”.</p>' +
+      '<div style="min-height:24px;font-size:17px">' + esc(V.live || '') + '</div><button class="btn sec" id="vcancel" style="width:100%;margin-top:8px">Cancel</button>';
+  } else if (V.mode === 'type') {
+    h += '<h3 style="margin-top:0">Say or type the scores</h3><p class="small muted">' + esc(V.msg || 'Tap the microphone on your keyboard and say the scores.') + ' Example: “' + esc(names.split(', ')[0]) + ' 5, ' + esc(names.split(', ')[1] || names.split(', ')[0]) + ' par”.</p>' +
+      '<input class="in" id="vtext" autocomplete="off" placeholder="Benny 5, Omar par…" value="' + esc(V.text || '') + '">' +
+      '<div class="row2" style="margin-top:8px"><button class="btn sec" id="vcancel">Cancel</button><button class="btn" id="vgo">Check</button></div>';
+  } else if (V.mode === 'confirm') {
+    const P = V.parsed, hole = P.hole || st.hole;
+    const got = new Set(P.scores.map(s => s.player_id));
+    const missing = grp.rows.filter(r => !got.has(r.player_id) && !(r.dnf && r.holes[hole - 1] === null)).map(r => r.name.split(' ')[0]);
+    h += '<h3 style="margin-top:0">Hole ' + hole + ': is this right?</h3><p class="small muted" style="margin-top:-4px">Heard: “' + esc(V.text) + '”</p>';
+    if (P.scores.length) {
+      h += '<table class="lb" style="margin-bottom:8px"><tbody>' + P.scores.map(s => {
+        const par = Number(st.course.holes[hole - 1].par);
+        return '<tr><td class="l"><b>' + esc(s.name) + '</b></td><td>' + mark(s.strokes, par) + '</td><td class="small muted">' + esc(C.scoreName(s.strokes - par)) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+    } else h += '<p style="color:var(--give)">I didn’t catch any scores. Try again and say each name, then the score.</p>';
+    if (missing.length && P.scores.length) h += '<p class="small" style="color:#8a5a00;margin:0 0 6px">Not heard: ' + esc(missing.join(', ')) + ' (enter those by hand or try again).</p>';
+    if (P.unknown.length) h += '<p class="small muted" style="margin:0 0 6px">Didn’t understand: ' + esc(P.unknown.slice(0, 6).join(' ')) + '</p>';
+    h += '<div class="row2"><button class="btn sec" id="vretry">Try again</button>' + (P.scores.length ? '<button class="btn" id="vsave">Save</button>' : '') + '</div><button class="btn sec" id="vcancel" style="width:100%;margin-top:8px;border:0">Cancel</button>';
+  }
+  return h + '</div>';
+}
+async function setDnf(pid) {
+  if (!st.adminCode || !st.round) return;
+  const S = C.settingsOf(st.round);
+  const cur = new Set(S.dnf || []);
+  if (cur.has(pid)) cur.delete(pid); else cur.add(pid);
+  const settings = { ...(st.round.settings || {}), dnf: [...cur] };
+  const entries = st.entries.map(e => { const x = { ...e }; delete x.round_id; return x; });
+  try {
+    await rpc('golf_admin', { p_pin: st.adminCode, p_action: 'save_round', p_data: { id: st.round.id, play_date: st.round.play_date, name: st.round.name, course_id: st.round.course_id, settings, entries } });
+    await refresh(true); st.admin.draft = null; render();
+  } catch (e) {
+    if (/moderator code needed|wrong code/i.test(e.message || '')) { st.adminCode = ''; LS.del('golf.adminCode'); }
+    st.err = e.message; render();
+  }
+}
+function groupNow() { return st.calc && st.calc.groups.find(g => g.group === st.group); }
+function voiceHeard(text) {
+  const grp = groupNow(); if (!grp) return;
+  const playing = h => grp.rows.filter(r => !(r.dnf && r.holes[h - 1] === null)).map(r => ({ player_id: r.player_id, name: r.name }));
+  let P = C.parseSpokenScores(text, playing(st.hole), Number(st.course.holes[st.hole - 1].par));
+  if (P.hole && P.hole !== st.hole) P = C.parseSpokenScores(text, playing(P.hole), Number(st.course.holes[P.hole - 1].par));
+  st.voice = { mode: 'confirm', text, live: '', parsed: P, msg: '' };
+  render();
+}
+function voiceStart() {
+  if (!SR) { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: '' }; render(); const i = document.getElementById('vtext'); if (i) i.focus(); return; }
+  try {
+    recog = new SR(); recog.lang = 'en-US'; recog.interimResults = true; recog.maxAlternatives = 1; recog.continuous = false;
+    let final = '';
+    recog.onresult = ev => {
+      let interim = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) final += t + ' '; else interim += t; }
+      st.voice.live = (final + interim).trim();
+      const el = document.querySelector('.card div[style*="min-height:24px"]'); if (el) el.textContent = st.voice.live;
+    };
+    recog.onerror = ev => { recog = null; st.voice = { mode: 'type', text: st.voice.live || '', live: '', parsed: null, msg: ev.error === 'not-allowed' ? 'The microphone is blocked for this site, so type it or use the keyboard mic.' : 'I couldn’t hear that.' }; render(); };
+    recog.onend = () => { if (st.voice.mode !== 'listening') return; recog = null; const t = (final || st.voice.live || '').trim(); if (t) voiceHeard(t); else { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: 'I didn’t hear anything.' }; render(); } };
+    st.voice = { mode: 'listening', text: '', live: '', parsed: null, msg: '' }; render();
+    recog.start();
+  } catch (e) { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: '' }; render(); }
+}
+function voiceStop() { if (recog) { try { recog.onend = null; recog.abort(); } catch { /* */ } recog = null; } }
+function voiceSave() {
+  const P = st.voice.parsed; if (!P) return;
+  if (P.hole) st.hole = P.hole;
+  P.scores.forEach(s => setScore(s.player_id, st.hole, s.strokes));
+  const grp = groupNow();
+  const done = grp && grp.rows.every(r => r.holes[st.hole - 1] !== null || r.dnf);
+  const saved = 'Saved hole ' + st.hole + '.';
+  if (done && st.hole < 18) st.hole += 1;
+  st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: saved + (done && st.hole <= 18 ? ' Now on hole ' + st.hole + '.' : '') };
+  render(); window.scrollTo(0, 0);
+}
 // ---------- card check ----------
 function checkView() {
   if (!st.scoreCode && !st.adminCode) return codeForm('scorer');
@@ -319,13 +413,13 @@ function checkView() {
     let ps = 0; for (let i = start; i < start + 9; i++) { ps += Number(c.holes[i].par); h += '<td class="muted">' + c.holes[i].par + '</td>'; }
     h += '<td class="t">' + ps + '</td>' + (start ? '<td class="t">' + st.calc.parTotal + '</td>' : '') + '</tr>';
     grp.rows.forEach(r => {
-      h += '<tr><td class="nm" title="' + esc(r.name) + '">' + esc(shortName(r.name)) + '</td>';
-      for (let i = start; i < start + 9; i++) h += '<td class="' + (r.holes[i] === null ? 'miss' : '') + '">' + (r.holes[i] ?? '') + '</td>';
+      h += '<tr><td class="nm" title="' + esc(r.name) + '">' + esc(shortName(r.name)) + (r.dnf ? ' <span style="color:var(--give);font-size:11px">DNF</span>' : '') + '</td>';
+      for (let i = start; i < start + 9; i++) h += '<td class="' + (r.holes[i] === null && !r.dnf ? 'miss' : '') + '">' + (r.holes[i] ?? (r.dnf ? '–' : '')) + '</td>';
       h += '<td class="t">' + ((start ? r.inn : r.out) || '') + '</td>' + (start ? '<td class="t">' + (r.gross || '') + '</td>' : '') + '</tr>';
     });
     return h + '</table></div>';
   };
-  const missing = grp.rows.reduce((a, r) => a + (18 - r.played), 0);
+  const missing = grp.rows.reduce((a, r) => a + (r.dnf ? 0 : 18 - r.played), 0);
   const chk = st.checks.find(x => x.group_no === grp.group);
   let h = '<h2>Card check · Group ' + grp.group + '</h2><p class="small muted">Hold the paper card next to this and compare hole by hole.</p>' + half(0) + half(9);
   if (chk) {
@@ -383,7 +477,7 @@ function draftFromRound() {
   return {
     id: st.round.id, play_date: st.round.play_date, name: st.round.name || '', course_id: st.round.course_id,
     settings: C.settingsOf(st.round), status: st.round.status,
-    entries: st.entries.map(e => ({ ...e, hcp_index: e.hcp_index === null ? '' : C.fmtIndex(Number(e.hcp_index)) })),
+    entries: st.entries.map(e => ({ ...e, dnf: (C.settingsOf(st.round).dnf || []).includes(e.player_id), hcp_index: e.hcp_index === null ? '' : C.fmtIndex(Number(e.hcp_index)) })),
   };
 }
 function adminRound() {
@@ -421,7 +515,8 @@ function adminRound() {
         '<div class="row2" style="margin-top:6px;gap:12px"><label class="chk"><select class="in sm" data-e="game" data-p="' + p.id + '" style="width:auto"><option value="net"' + (e.game === 'net' ? ' selected' : '') + '>Net</option><option value="gross"' + (e.game === 'gross' ? ' selected' : '') + '>Gross</option></select></label>' +
         '<label class="chk"><input type="checkbox" data-e="gross_skins" data-p="' + p.id + '"' + (e.gross_skins ? ' checked' : '') + '>G skins</label>' +
         '<label class="chk"><input type="checkbox" data-e="net_skins" data-p="' + p.id + '"' + (e.net_skins ? ' checked' : '') + '>N skins</label>' +
-        '<label class="chk"><input type="checkbox" data-e="deuce" data-p="' + p.id + '"' + (e.deuce ? ' checked' : '') + '>Deuce</label></div>';
+        '<label class="chk"><input type="checkbox" data-e="deuce" data-p="' + p.id + '"' + (e.deuce ? ' checked' : '') + '>Deuce</label>' +
+        '<label class="chk" style="color:var(--give)"><input type="checkbox" data-e="dnf" data-p="' + p.id + '"' + (e.dnf ? ' checked' : '') + '>DNF</label></div>';
     }
     h += '</div></div>';
   });
@@ -545,7 +640,8 @@ async function adminSave() {
         }
       }
       amsg('Saving…');
-      const entries = D.entries.map(e => ({ ...e, hcp_index: C.parseIndex(e.hcp_index), group_no: Number(e.group_no) || 1, flight: Number(e.flight) || 1 }));
+      D.settings.dnf = D.entries.filter(e => e.dnf).map(e => e.player_id);
+      const entries = D.entries.map(e => { const x = { ...e, hcp_index: C.parseIndex(e.hcp_index), group_no: Number(e.group_no) || 1, flight: Number(e.flight) || 1 }; delete x.dnf; return x; });
       const res = await rpc('golf_admin', { p_pin: st.adminCode, p_action: 'save_round', p_data: { id: D.id || null, play_date: D.play_date, name: D.name, course_id: D.course_id, settings: D.settings, entries } });
       st.roundId = res.id; LS.set('golf.round', res.id);
       await refresh(true); A.draft = draftFromRound(); render(); amsg('Round saved ✓', 'ok');
@@ -602,9 +698,15 @@ app.addEventListener('click', async e => {
   if (t.dataset.tab) { st.tab = t.dataset.tab; LS.set('golf.tab', st.tab); render(); return; }
   if (t.dataset.open) { st.open[t.dataset.open] = !st.open[t.dataset.open]; render(); return; }
   if (t.dataset.group) { st.group = Number(t.dataset.group); LS.set('golf.group', st.group); st.hole = firstOpenHole(); render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.dnf) { setDnf(t.dataset.dnf); return; }
+  if (t.id === 'voice') { voiceStart(); return; }
+  if (t.id === 'vcancel') { voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; render(); return; }
+  if (t.id === 'vretry') { voiceStop(); voiceStart(); return; }
+  if (t.id === 'vgo') { const v = (document.getElementById('vtext')?.value || '').trim(); if (v) voiceHeard(v); return; }
+  if (t.id === 'vsave') { voiceSave(); return; }
   if (t.dataset.groupclear) { st.group = null; LS.del('golf.group'); render(); return; }
-  if (t.dataset.holeStep) { st.hole = Math.min(18, Math.max(1, st.hole + Number(t.dataset.holeStep))); render(); window.scrollTo(0, 0); return; }
-  if (t.dataset.hole) { st.hole = Number(t.dataset.hole); render(); return; }
+  if (t.dataset.holeStep) { voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; st.hole = Math.min(18, Math.max(1, st.hole + Number(t.dataset.holeStep))); render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.hole) { voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; st.hole = Number(t.dataset.hole); render(); return; }
   if (t.dataset.setpar) {
     const r = st.calc.rows.find(x => x.player_id === t.dataset.setpar);
     if (r && r.holes[st.hole - 1] === null) { setScore(r.player_id, st.hole, Number(st.course.holes[st.hole - 1].par)); render(); }
@@ -675,7 +777,7 @@ function alertLine(m) { st.err = m; render(); }
 function firstOpenHole() {
   const grp = st.calc?.groups.find(g => g.group === st.group);
   if (!grp) return 1;
-  for (let i = 0; i < 18; i++) if (grp.rows.some(r => r.holes[i] === null)) return i + 1;
+  for (let i = 0; i < 18; i++) if (grp.rows.some(r => r.holes[i] === null && !r.dnf)) return i + 1;
   return 18;
 }
 
@@ -722,6 +824,7 @@ function editField(el, isChange) {
   if (el.dataset.c && A.courseDraft) { A.courseDraft[el.dataset.c] = el.value; }
 }
 
+app.addEventListener('keydown', e => { if (e.target.id === 'vtext' && e.key === 'Enter') { e.preventDefault(); const v = e.target.value.trim(); if (v) voiceHeard(v); } });
 app.addEventListener('submit', async e => {
   if (e.target.id !== 'codeform') return;
   e.preventDefault();
@@ -745,6 +848,7 @@ setInterval(async () => {
   if (document.hidden) return;
   const v = view();
   if (v === 'admin') return;
+  if (st.voice.mode !== 'idle') return;
   const active = document.activeElement;
   if (active && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
   await refresh(false);
