@@ -139,6 +139,12 @@ async function flush() {
     }
     st.saveMsg = 'ok';
   } catch (e) {
+    if (/wrong code/i.test(e.message)) {
+      // The code was changed by the moderator: ask this phone for the new one. Unsent scores stay queued.
+      st.scoreCode = ''; LS.del('golf.scoreCode');
+      if (/wrong code/i.test(e.message) && st.adminCode) { st.adminCode = ''; LS.del('golf.adminCode'); }
+      flushing = false; st.saveMsg = ''; render(); return;
+    }
     st.saveMsg = /code|final/i.test(e.message) ? e.message : 'offline';
     clearTimeout(flushTimer); flushTimer = setTimeout(flush, 10000);
   }
@@ -511,7 +517,10 @@ async function adminSave() {
       await rpc('golf_admin', { p_pin: st.adminCode, p_action: 'save_course', p_data: { id: c.id, name: c.name, holes, tees } });
       await refresh(true); A.courseDraft = null; render(); amsg('Course saved ✓', 'ok');
     }
-  } catch (e) { amsg(e.message || String(e), 'err'); }
+  } catch (e) {
+    if (/moderator code needed|wrong code/i.test(e.message || '')) { st.adminCode = ''; LS.del('golf.adminCode'); render(); return; }
+    amsg(e.message || String(e), 'err');
+  }
 }
 function fixT(d) { d = d || {}; const n = v => (v === '' || v === null || v === undefined ? null : Number(v)); return { cr: n(d.cr), slope: n(d.slope), par: n(d.par) ?? 72 }; }
 function nameOf(id) { return st.players.find(p => p.id === id)?.name || 'Player'; }
@@ -666,6 +675,7 @@ app.addEventListener('submit', async e => {
     if (k === 'admin') { st.adminCode = code; LS.set('golf.adminCode', code); }
     if (kind === 'scorer' || k === 'scorer') { st.scoreCode = code; LS.set('golf.scoreCode', code); }
     render();
+    if (queue.length) scheduleFlush(100);
   } catch (err) { msg.textContent = err.message; }
 });
 
