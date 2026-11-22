@@ -1,4 +1,4 @@
-import * as C from './calc.js';
+import * as C from './calc.js?v=9';
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
