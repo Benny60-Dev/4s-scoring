@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 18;
+const APP_V = 19;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -430,7 +430,14 @@ function voiceStart() {
 }
 let recogFinish = null;
 const vlog = [];
-function vtrace(x) { vlog.push(x); if (vlog.length > 14) vlog.shift(); const el = document.getElementById('vtrace'); if (el) el.textContent = vtraceText(); }
+let vsendTimer = null;
+const vsid = (() => { try { let x = sessionStorage.getItem('golf.vsid'); if (!x) { x = Math.random().toString(36).slice(2, 8); sessionStorage.setItem('golf.vsid', x); } return x; } catch { return 'x'; } })();
+function vtrace(x) {
+  vlog.push(x); if (vlog.length > 14) vlog.shift(); const el = document.getElementById('vtrace'); if (el) el.textContent = vtraceText();
+  // Send the mic steps to Claude's test log so problems can be fixed without screenshots.
+  clearTimeout(vsendTimer);
+  vsendTimer = setTimeout(() => { rpc('golf_log', { p_msg: 'v' + APP_V + ' ' + vsid + ' h' + st.hole + ' sr=' + !!SR + ' ios=' + IS_IOS + ' | ' + vlog.join(' > '), p_ua: navigator.userAgent }).catch(() => {}); }, 1200);
+}
 function vtraceText() { return 'mic check: ' + (IOS_OTHER ? 'chrome' : SR ? 'listen' : 'box') + ' · ' + vlog.join(' › '); }
 function voiceStop() { recogFinish = null; if (recog) { const r = recog; recog = null; try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch { /* */ } } }
 function voiceSave() {
@@ -943,6 +950,7 @@ document.addEventListener('visibilitychange', async () => { if (!document.hidden
 
 (async () => {
   await refresh(true);
+  vtrace('open');
   try { const R = JSON.parse(LS.get('golf.resume') || 'null'); LS.del('golf.resume'); if (R && Date.now() - R.t < 300000) { st.hole = R.hole; st.voice.msg = R.msg; } } catch { /* */ }
   render();
   if (queue.length) scheduleFlush(500);
