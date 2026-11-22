@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 26;
+const APP_V = 27;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -301,23 +301,22 @@ function scoreView() {
     }
     const v = r.holes[i], b = r.bumps[i], px = r.picked[i];
     const tp = r.played ? C.fmtToPar(r.grossToPar) : '';
-    // One tap per player: a row of numbers centered on par. The last button opens bigger numbers.
-    const lo = Math.max(1, par - 2), big = (st.bigRow === r.player_id) || (v !== null && !px && v >= lo + 6);
-    const nums = big ? [lo + 6, lo + 7, lo + 8, lo + 9, lo + 10, lo + 11] : [lo, lo + 1, lo + 2, lo + 3, lo + 4, lo + 5];
-    const btn = n => '<button class="nb' + (!px && v === n ? ' on' : '') + (n === par ? ' par' : '') + '" data-set="' + r.player_id + '" data-n="' + n + '">' + n + '</button>';
-    h += '<div class="prow2"><div class="top"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div>' +
-      '<div class="sv' + (v === null ? ' none' : px ? ' x' : '') + '">' + (v === null ? '–' : px ? 'X' : v) + '</div></div>' +
-      '<div class="m">' + (b > 0 ? '<span class="bd"></span>'.repeat(b) + ' ' + b + (b > 1 ? ' bumps' : ' bump') + ' here · ' : b < 0 ? '<span class="gv">gives 1 here</span> · ' : '') +
-      (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') + '</div>' +
-      '<div class="nrow">' + (big ? '<button class="nb more" data-big="" aria-label="Smaller numbers">‹</button>' : '') + nums.map(btn).join('') +
-      (big ? '' : '<button class="nb more" data-big="' + r.player_id + '">' + (lo + 6) + '+</button>') + '</div>' +
-      '<div class="hacts">' + (px ? '' : '<button class="linkbtn" data-pick="' + r.player_id + '">X (picked up)</button>') + (v !== null ? '<button class="linkbtn" data-clr="' + r.player_id + '">Clear</button>' : '') +
-      '<button class="linkbtn dnfb" data-dnf="' + r.player_id + '">' + (r.dnf ? 'Undo DNF' : st.dnfArm === r.player_id ? 'Confirm DNF?' : 'DNF') + '</button></div></div>';
+    // Compact row: − [score] +. Tapping the score opens the iPhone's scroll wheel to pick a number.
+    const opts = '<option value="">–</option>' + Array.from({ length: 15 }, (_, k) => k + 1).map(n => '<option value="' + n + '"' + (!px && v === n ? ' selected' : '') + '>' + n + (n === par ? '  (par)' : '') + '</option>').join('') + '<option value="0"' + (px ? ' selected' : '') + '>X (picked up)</option>';
+    h += '<div class="prow"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m">' +
+      (b > 0 ? '<span class="bd"></span>'.repeat(b) + ' ' + b + (b > 1 ? ' bumps' : ' bump') + ' here · ' : b < 0 ? '<span class="gv">gives 1 here</span> · ' : '') +
+      (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') +
+      '<div class="hacts">' + (px ? '' : '<button class="linkbtn" data-pick="' + r.player_id + '">X</button>') + (v !== null ? '<button class="linkbtn" data-clr="' + r.player_id + '">Clear</button>' : '') +
+      '<button class="linkbtn dnfb" data-dnf="' + r.player_id + '">' + (r.dnf ? 'Undo DNF' : st.dnfArm === r.player_id ? 'Confirm DNF?' : 'DNF') + '</button></div></div></div>' +
+      '<div class="stepper"><button data-adj="-1" data-p="' + r.player_id + '" aria-label="One less">−</button>' +
+      '<label class="val' + (v === null ? ' empty' : '') + (px ? ' xv' : '') + '"><span>' + (v === null ? 'tap' : px ? 'X' : v) + '</span>' +
+      '<select class="wheel" data-wheel="' + r.player_id + '" data-cur="' + (v === null ? '' : px ? '0' : v) + '" data-par="' + par + '" aria-label="Score for ' + esc(r.name) + '">' + opts + '</select></label>' +
+      '<button data-adj="1" data-p="' + r.player_id + '" aria-label="One more">+</button></div></div>';
   });
   h += '<div class="status" id="savemsg">' + saveText() + '</div>';
   h += '<div class="row2" style="margin-top:6px"><button class="btn sec" data-groupclear="1">Change group</button><button class="btn sec" data-go="check">Card check</button>' +
     (st.hole < 18 ? '<button class="btn" data-hole-step="1">Next hole ›</button>' : '') + '</div>';
-  h += '<p class="small muted" style="margin-top:12px">Tap each player’s score. Par is in bold. The last button shows bigger numbers. <b>X</b> = picked up (counts as net double bogey). <b>Clear</b> empties the box. <b>DNF</b> = he left the round: his scores so far stay on record and he’s skipped from then on. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
+  h += '<p class="small muted" style="margin-top:12px">Tap the score box to scroll to a number, or use − and +. <b>X</b> = picked up (counts as net double bogey). <b>Clear</b> empties the box. <b>DNF</b> = he left the round: his scores so far stay on record and he’s skipped from then on. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
   return h;
 }
 
@@ -884,6 +883,7 @@ function firstOpenHole() {
 
 app.addEventListener('change', async e => {
   const el = e.target;
+  if (el.dataset && el.dataset.wheel) { wheelSave(el); return; }
   if (el.id === 'impround') { st.admin.importRound = el.checked; return; }
   if (el.dataset && el.dataset.impadd !== undefined) { if (el.checked) st.admin.importAdd.add(el.dataset.impadd); else st.admin.importAdd.delete(el.dataset.impadd); return; }
   if (el.id === 'rsel') { st.roundId = el.value; LS.set('golf.round', el.value); st.loading = true; render(); await refresh(false); st.admin.draft = null; render(); return; }
@@ -895,6 +895,13 @@ app.addEventListener('change', async e => {
   }
   editField(el, true);
 });
+function wheelSave(el) {
+  if (el.value === el.dataset.cur) return;
+  if (el.value === '') { if (el.dataset.cur !== '') { el.dataset.cur = ''; setScore(el.dataset.wheel, st.hole, null); render(); } return; }
+  el.dataset.cur = el.value; setScore(el.dataset.wheel, st.hole, Number(el.value)); render();
+}
+app.addEventListener('focusin', e => { const el = e.target; if (el.dataset && el.dataset.wheel && el.value === '') el.value = el.dataset.par; });
+app.addEventListener('focusout', e => { const el = e.target; if (el.dataset && el.dataset.wheel) wheelSave(el); });
 let quickTimer = null, quickPoll = null;
 function quickCheck(el) {
   clearInterval(quickPoll); quickPoll = null; clearTimeout(quickTimer);
