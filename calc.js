@@ -114,8 +114,8 @@ export function computeRound({ round, course, entries, players, scores }) {
   const dnfSet = new Set((S.dnf || []).map(String));
   const rows = entries.map(e => {
     const p = pmap.get(e.player_id) || { name: '(unknown)' };
-    const holes = Array(18).fill(null);
-    scores.filter(s => s.player_id === e.player_id).forEach(s => { holes[s.hole - 1] = s.strokes; });
+    const raw = Array(18).fill(null);
+    scores.filter(s => s.player_id === e.player_id).forEach(s => { raw[s.hole - 1] = s.strokes; });
     const idx = num(e.hcp_index);
     const r = teeRating(course, e.tee, e.gender);
     const ch = courseHcpExact(idx, r);
@@ -123,6 +123,9 @@ export function computeRound({ round, course, entries, players, scores }) {
     const skinStrokes = bumpStrokes(ch, num(S.skins_allowance) ?? 100);
     const bumps = course.holes.map((_, i) => bumpsOn(strokes, holeSi(course, i, e.gender)));
     const skinBumps = course.holes.map((_, i) => bumpsOn(skinStrokes, holeSi(course, i, e.gender)));
+    // 0 = X (picked up). It counts as net double bogey: par + 2 + his bumps on that hole.
+    const picked = raw.map(v => v === 0);
+    const holes = raw.map((v, i) => v === 0 ? num(course.holes[i].par) + 2 + (bumps[i] || 0) : v);
     let played = 0, gross = 0, parPlayed = 0, out = 0, inn = 0, bumpsPlayed = 0;
     holes.forEach((v, i) => {
       if (v !== null) { played++; gross += v; parPlayed += num(course.holes[i].par); bumpsPlayed += bumps[i]; if (i < 9) out += v; else inn += v; }
@@ -132,9 +135,9 @@ export function computeRound({ round, course, entries, players, scores }) {
     // Finished: exact decimal (Golf Genius). In progress: whole bumps on the holes played so far.
     const netTotal = done && ch !== null ? round1(gross - ch) : null;
     const netToPar = ch === null ? null : (done ? round1(gross - ch - parTotal) : grossToPar - bumpsPlayed);
-    const deuces = holes.filter(v => v === 2).length;
+    const deuces = holes.filter((v, i) => v === 2 && !picked[i]).length;
     return {
-      player_id: e.player_id, name: p.name, entry: e, holes, played, done, dnf: dnfSet.has(String(e.player_id)), gross, out, inn,
+      player_id: e.player_id, name: p.name, entry: e, holes, picked, played, done, dnf: dnfSet.has(String(e.player_id)), gross, out, inn,
       grossToPar, ch, strokes, bumps, skinBumps, netTotal, netToPar, deuces, problem: ch === null ? (idx === null ? 'No index' : 'No tee rating') : null,
     };
   });
@@ -196,7 +199,7 @@ export function computeRound({ round, course, entries, players, scores }) {
       const vals = onHole.map(r => ({ r, v: kind === 'gross' ? r.holes[i] : r.holes[i] - r.skinBumps[i] }));
       const best = Math.min(...vals.map(x => x.v));
       const winners = vals.filter(x => x.v === best);
-      if (winners.length === 1) won.push({ hole: i + 1, r: winners[0].r, v: best, par: num(course.holes[i].par) });
+      if (winners.length === 1 && !winners[0].r.picked[i]) won.push({ hole: i + 1, r: winners[0].r, v: best, par: num(course.holes[i].par) });
     }
     const per = won.length ? pot / won.length : 0;
     const byP = new Map();
@@ -361,6 +364,9 @@ export function parseSpokenScores(text, players, par, holeCount = 18) {
   }
   function scoreOf(w, next) {
     if (/^\d{1,2}$/.test(w)) return { v: Number(w), used: 1 };
+    // "X", "pick up", "picked up" = picked up (stored as 0)
+    if (w === 'x' || w === 'ex' || w === 'pickup' || w === 'pickedup') return { v: 0, used: 1 };
+    if ((w === 'pick' || w === 'picked') && next === 'up') return { v: 0, used: 2 };
     if (w in NUMWORDS) return { v: NUMWORDS[w], used: 1 };
     if (w in RELWORDS) {
       let rel = RELWORDS[w], used = 1;
@@ -395,6 +401,6 @@ export function parseSpokenScores(text, players, par, holeCount = 18) {
   }
   // Just numbers, one per player in group order.
   if (!found.size && loose.length === players.length) players.forEach((p, i) => found.set(p.player_id, { player_id: p.player_id, name: p.name, strokes: loose[i] }));
-  const scores = players.map(p => found.get(p.player_id)).filter(Boolean).filter(s => s.strokes >= 1 && s.strokes <= 15);
+  const scores = players.map(p => found.get(p.player_id)).filter(Boolean).filter(s => s.strokes >= 0 && s.strokes <= 15);
   return { hole, scores, unknown };
 }

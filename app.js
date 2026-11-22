@@ -1,4 +1,5 @@
-import * as C from './calc.js?v=11';
+import * as C from './calc.js?v=12';
+const APP_V = 12;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -173,8 +174,9 @@ function bottomNav(v) {
   const b = (k, label) => '<button data-go="' + k + '" class="' + (v === k || (k === 'score' && v === 'check') ? 'on' : '') + '">' + ICON[k] + label + '</button>';
   return '<nav class="bottom"><div class="wrap">' + b('board', 'Leaderboard') + b('score', 'Enter scores') + b('bumps', 'Bumps') + b('admin', 'Moderator') + '</div></nav>';
 }
-function mark(strokes, par) {
+function mark(strokes, par, picked) {
   if (strokes === null) return '';
+  if (picked || strokes === 0) return '<span class="mk dbl">X</span>';
   const d = strokes - par;
   const cls = d <= -2 ? 'eagle' : d === -1 ? 'bird' : d === 1 ? 'bog' : d >= 2 ? 'dbl' : '';
   return '<span class="mk ' + cls + '">' + strokes + '</span>';
@@ -195,7 +197,7 @@ function scorecard(r) {
     h += '<div class="tot">' + parSum + '</div><div class="lab">Hcp</div>';
     for (let i = start; i < start + 9; i++) h += '<div class="muted">' + C.holeSi(c, i, r.entry.gender) + '</div>';
     h += '<div></div><div class="lab">Score</div>';
-    for (let i = start; i < start + 9; i++) h += '<div>' + mark(r.holes[i], Number(c.holes[i].par)) + '</div>';
+    for (let i = start; i < start + 9; i++) h += '<div>' + mark(r.holes[i], Number(c.holes[i].par), r.picked[i]) + '</div>';
     h += '<div class="tot">' + ((start ? r.inn : r.out) || '') + '</div><div class="lab">Bump</div>';
     for (let i = start; i < start + 9; i++) h += bumpCell(r.bumps[i]);
     h += '<div></div></div>';
@@ -296,19 +298,20 @@ function scoreView() {
       h += '<div class="prow" style="opacity:.6"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m"><b style="color:var(--give)">DNF</b> · not playing' + (st.adminCode ? ' · <button class="linkbtn" data-dnf="' + r.player_id + '">Undo DNF</button>' : '') + '</div></div></div>';
       return;
     }
-    const v = r.holes[i], b = r.bumps[i];
+    const v = r.holes[i], b = r.bumps[i], px = r.picked[i];
     const tp = r.played ? C.fmtToPar(r.grossToPar) : '';
     h += '<div class="prow"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m">' +
       (b > 0 ? '<span class="bd"></span>'.repeat(b) + ' ' + b + (b > 1 ? ' bumps' : ' bump') + ' here · ' : b < 0 ? '<span class="gv">gives 1 here</span> · ' : '') +
       (r.dnf ? '<b style="color:var(--give)">DNF</b> · ' : '') + (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') +
-      (st.adminCode ? ' · <button class="linkbtn" data-dnf="' + r.player_id + '">' + (r.dnf ? 'Undo DNF' : 'Mark DNF') + '</button>' : '') + '</div></div>' +
-      '<div class="stepper"><button data-adj="-1" data-p="' + r.player_id + '" aria-label="One less">−</button><div class="val' + (v === null ? ' empty' : '') + '" data-setpar="' + r.player_id + '">' + (v === null ? 'tap' : v) + '</div><button data-adj="1" data-p="' + r.player_id + '" aria-label="One more">+</button></div></div>';
+      (st.adminCode ? ' · <button class="linkbtn" data-dnf="' + r.player_id + '">' + (r.dnf ? 'Undo DNF' : 'Mark DNF') + '</button>' : '') +
+      '<div class="hacts">' + (px ? '' : '<button class="linkbtn" data-pick="' + r.player_id + '">X (picked up)</button>') + (v !== null ? '<button class="linkbtn" data-clr="' + r.player_id + '">Clear</button>' : '') + '</div></div></div>' +
+      '<div class="stepper"><button data-adj="-1" data-p="' + r.player_id + '" aria-label="One less">−</button><div class="val' + (v === null ? ' empty' : '') + (px ? ' xv' : '') + '" data-setpar="' + r.player_id + '">' + (v === null ? 'tap' : px ? 'X' : v) + '</div><button data-adj="1" data-p="' + r.player_id + '" aria-label="One more">+</button></div></div>';
   });
   h += voicePanel(grp);
   h += '<div class="status" id="savemsg">' + saveText() + '</div>';
   h += '<div class="row2" style="margin-top:6px"><button class="btn sec" data-groupclear="1">Change group</button><button class="btn sec" data-go="check">Card check</button>' +
     (st.hole < 18 ? '<button class="btn" data-hole-step="1">Next hole ›</button>' : '') + '</div>';
-  h += '<p class="small muted" style="margin-top:12px">Tap the box to put in par, then use − and + to adjust. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
+  h += '<p class="small muted" style="margin-top:12px">Tap the box to put in par, then use − and + to adjust. <b>X</b> = picked up (counts as net double bogey). <b>Clear</b> empties the box. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
   return h;
 }
 
@@ -337,7 +340,7 @@ function voicePanel(grp) {
     if (P.scores.length) {
       h += '<table class="lb" style="margin-bottom:8px"><tbody>' + P.scores.map(s => {
         const par = Number(st.course.holes[hole - 1].par);
-        return '<tr><td class="l"><b>' + esc(s.name) + '</b></td><td>' + mark(s.strokes, par) + '</td><td class="small muted">' + esc(C.scoreName(s.strokes - par)) + '</td></tr>';
+        return '<tr><td class="l"><b>' + esc(s.name) + '</b></td><td>' + mark(s.strokes, par) + '</td><td class="small muted">' + esc(s.strokes === 0 ? 'Picked up' : C.scoreName(s.strokes - par)) + '</td></tr>';
       }).join('') + '</tbody></table>';
     } else h += '<p style="color:var(--give)">I didn’t catch any scores. Try again and say each name, then the score.</p>';
     if (missing.length && P.scores.length) h += '<p class="small" style="color:#8a5a00;margin:0 0 6px">Not heard: ' + esc(missing.join(', ')) + ' (enter those by hand or try again).</p>';
@@ -414,7 +417,7 @@ function checkView() {
     h += '<td class="t">' + ps + '</td>' + (start ? '<td class="t">' + st.calc.parTotal + '</td>' : '') + '</tr>';
     grp.rows.forEach(r => {
       h += '<tr><td class="nm" title="' + esc(r.name) + '">' + esc(shortName(r.name)) + (r.dnf ? ' <span style="color:var(--give);font-size:11px">DNF</span>' : '') + '</td>';
-      for (let i = start; i < start + 9; i++) h += '<td class="' + (r.holes[i] === null && !r.dnf ? 'miss' : '') + '">' + (r.holes[i] ?? (r.dnf ? '–' : '')) + '</td>';
+      for (let i = start; i < start + 9; i++) h += '<td class="' + (r.holes[i] === null && !r.dnf ? 'miss' : '') + '">' + (r.picked[i] ? 'X' : (r.holes[i] ?? (r.dnf ? '–' : ''))) + '</td>';
       h += '<td class="t">' + ((start ? r.inn : r.out) || '') + '</td>' + (start ? '<td class="t">' + (r.gross || '') + '</td>' : '') + '</tr>';
     });
     return h + '</table></div>';
@@ -712,9 +715,11 @@ app.addEventListener('click', async e => {
     if (r && r.holes[st.hole - 1] === null) { setScore(r.player_id, st.hole, Number(st.course.holes[st.hole - 1].par)); render(); }
     return;
   }
+  if (t.dataset.pick) { setScore(t.dataset.pick, st.hole, 0); render(); return; }
+  if (t.dataset.clr) { setScore(t.dataset.clr, st.hole, null); render(); return; }
   if (t.dataset.adj) {
     const r = st.calc.rows.find(x => x.player_id === t.dataset.p);
-    const cur = r.holes[st.hole - 1];
+    const cur = r.picked[st.hole - 1] ? null : r.holes[st.hole - 1];
     const par = Number(st.course.holes[st.hole - 1].par);
     let next = cur === null ? par + (Number(t.dataset.adj) > 0 ? 0 : -1) : cur + Number(t.dataset.adj);
     if (next < 1) next = 1; if (next > 15) next = 15;
@@ -853,8 +858,17 @@ setInterval(async () => {
   if (active && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
   await refresh(false);
   render();
+  checkUpdate();
 }, 20000);
-document.addEventListener('visibilitychange', async () => { if (!document.hidden && view() !== 'admin') { await refresh(false); render(); scheduleFlush(100); } });
+// When a newer version is published, switch to it (scores waiting to send are kept on the phone).
+async function checkUpdate() {
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    const j = await r.json();
+    if (Number(j.v) > APP_V && st.voice.mode === 'idle' && !flushing) location.replace(location.pathname + '?u=' + j.v + location.hash);
+  } catch (e) { /* offline: try later */ }
+}
+document.addEventListener('visibilitychange', async () => { if (!document.hidden) checkUpdate(); if (!document.hidden && view() !== 'admin') { await refresh(false); render(); scheduleFlush(100); } });
 
 (async () => {
   await refresh(true);

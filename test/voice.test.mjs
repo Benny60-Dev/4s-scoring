@@ -29,4 +29,8 @@ assert.deepEqual(s('Tommy 4 Benny 5 Omar 6 Dale 7'), { t: 4, b: 5, o: 6, d: 7 })
 assert.deepEqual(s('Benny 5 Omar 4 Dale 6 Zorba 4'), { b: 5, o: 4, d: 6, t: 4 });   // last unknown name -> the one player left
 // a random word that's not close to anyone isn't guessed when two players are still missing
 assert.deepEqual(s('Benny 5 Zorba 4'), { b: 5 });
+// X / picked up
+assert.deepEqual(s('Benny X Dale 5 Omar 4 Tony 6'), { b: 0, d: 5, o: 4, t: 6 });
+assert.deepEqual(s('Benny picked up Dale 5'), { b: 0, d: 5 });
+assert.deepEqual(s('5555'), { b: 5, d: 5, o: 5, t: 5 });
 console.log('all voice tests passed');
