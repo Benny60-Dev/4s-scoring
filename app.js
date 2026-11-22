@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 16;
+const APP_V = 17;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -834,11 +834,33 @@ app.addEventListener('change', async e => {
   }
   editField(el, true);
 });
-let quickTimer = null;
+let quickTimer = null, quickPoll = null;
+function quickCheck(el) {
+  clearInterval(quickPoll); quickPoll = null; clearTimeout(quickTimer);
+  const v = (el.value || '').trim();
+  if (!v || !/\d|[a-z]{3}/i.test(v)) return;
+  el.blur(); // let go of the keyboard and dictation before the screen changes
+  voiceHeard(v);
+}
+app.addEventListener('focusin', e => {
+  const el = e.target; if (el.id !== 'vquick') return;
+  vtrace('box'); clearInterval(quickPoll);
+  let last = el.value, since = Date.now(), seen = false;
+  quickPoll = setInterval(() => {
+    if (!document.body.contains(el)) { clearInterval(quickPoll); quickPoll = null; return; }
+    if (el.value !== last) { last = el.value; since = Date.now(); if (!seen) { seen = true; vtrace('text'); } return; }
+    if (el.value.trim() && Date.now() - since > 1800) { vtrace('quiet'); quickCheck(el); }
+  }, 300);
+});
+app.addEventListener('focusout', e => {
+  const el = e.target; if (el.id !== 'vquick') return;
+  vtrace('left');
+  setTimeout(() => { if (document.body.contains(el) && el.value.trim() && st.voice.mode === 'idle') quickCheck(el); }, 600);
+});
 app.addEventListener('input', e => {
   const el = e.target;
   // Dictation types as you talk; 1.8 seconds with no new words = done, so check it.
-  if (el.id === 'vquick') { if (!el.dataset.t) { el.dataset.t = 1; vtrace('typing'); } clearTimeout(quickTimer); quickTimer = setTimeout(() => { const v = (document.getElementById('vquick')?.value || '').trim(); if (v && /\d|[a-z]{3}/i.test(v)) voiceHeard(v); }, 1800); return; }
+  if (el.id === 'vquick') { if (!el.dataset.t) { el.dataset.t = 1; vtrace('typing'); } return; }
   if (el.id === 'imptext') { st.admin.importText = el.value; const pv = document.getElementById('impprev'); if (pv) pv.innerHTML = importPreview(); return; }
   if (el.id === 'bq') { st.bumpQuery = el.value; const b = document.getElementById('blist'); if (b) b.innerHTML = bumpList(el.value.trim().toLowerCase()); return; }
   editField(el, false);
@@ -867,8 +889,8 @@ function editField(el, isChange) {
   if (el.dataset.c && A.courseDraft) { A.courseDraft[el.dataset.c] = el.value; }
 }
 
-app.addEventListener('keydown', e => { if ((e.target.id === 'vtext' || e.target.id === 'vquick') && e.key === 'Enter') { clearTimeout(quickTimer); }
-  if ((e.target.id === 'vtext' || e.target.id === 'vquick') && e.key === 'Enter') { e.preventDefault(); const v = e.target.value.trim(); if (v) voiceHeard(v); } });
+app.addEventListener('keydown', e => { if (e.target.id === 'vquick' && e.key === 'Enter') { e.preventDefault(); quickCheck(e.target); return; }
+  if (e.target.id === 'vtext' && e.key === 'Enter') { e.preventDefault(); const v = e.target.value.trim(); if (v) voiceHeard(v); } });
 app.addEventListener('submit', async e => {
   if (e.target.id !== 'codeform') return;
   e.preventDefault();
