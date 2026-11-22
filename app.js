@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 27;
+const APP_V = 28;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -638,7 +638,8 @@ function adminPlayers() {
       '<label>Plays<select class="in sm" data-pp="game" data-k="' + k + '"><option value="net"' + (p.game === 'net' ? ' selected' : '') + '>Net</option><option value="gross"' + (p.game === 'gross' ? ' selected' : '') + '>Gross</option></select></label>' +
       '<label>Tees<select class="in sm" data-pp="default_tee" data-k="' + k + '"><option value=""></option>' + tees.map(t => '<option' + (t === p.default_tee ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></label>' +
       '<label>Card<select class="in sm" data-pp="gender" data-k="' + k + '"><option value="m"' + (p.gender !== 'w' ? ' selected' : '') + '>Men</option><option value="w"' + (p.gender === 'w' ? ' selected' : '') + '>Women</option></select></label>' +
-      '<label>Active<select class="in sm" data-pp="active" data-k="' + k + '"><option value="true"' + (p.active ? ' selected' : '') + '>Yes</option><option value="false"' + (!p.active ? ' selected' : '') + '>No</option></select></label></div></div>';
+      '<label>Active<select class="in sm" data-pp="active" data-k="' + k + '"><option value="true"' + (p.active ? ' selected' : '') + '>Yes</option><option value="false"' + (!p.active ? ' selected' : '') + '>No</option></select></label></div>' +
+      '<div class="hacts" style="justify-content:flex-end"><button class="linkbtn" data-delp="' + k + '">' + (A.armed === 'delp' + k ? 'Tap again to delete ' + esc(p.name || 'this player') : 'Delete player') + '</button></div></div>';
   });
   return h;
 }
@@ -829,6 +830,19 @@ app.addEventListener('click', async e => {
     return;
   }
   // moderator
+  if (t.dataset.delp !== undefined) {
+    const k = Number(t.dataset.delp), p = A.playersDraft[k];
+    if (!p) return;
+    if (A.armed !== 'delp' + k) { A.armed = 'delp' + k; render(); return; }
+    A.armed = null;
+    if (!p.id) { A.playersDraft.splice(k, 1); render(); return; } // never saved: just drop it
+    try {
+      await rpc('golf_delete_player', { p_pin: st.adminCode, p_player: p.id });
+      A.playersDraft.splice(k, 1); st.players = st.players.filter(x => x.id !== p.id);
+      await refresh(true); render(); amsg(p.name + ' deleted.', 'ok');
+    } catch (err) { render(); amsg(err.message, 'err'); }
+    return;
+  }
   if (t.dataset.atab) { A.tab = t.dataset.atab; A.msg = ''; A.armed = null; A.importing = false; render(); return; }
   if (t.id === 'asave') { adminSave(); return; }
   if (t.id === 'newround') { A.draft = newRoundDraft(); render(); amsg('Fill it in, tick who’s playing, then Save.'); return; }
