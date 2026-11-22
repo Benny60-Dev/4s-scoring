@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 25;
+const APP_V = 26;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -301,17 +301,23 @@ function scoreView() {
     }
     const v = r.holes[i], b = r.bumps[i], px = r.picked[i];
     const tp = r.played ? C.fmtToPar(r.grossToPar) : '';
-    h += '<div class="prow"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m">' +
-      (b > 0 ? '<span class="bd"></span>'.repeat(b) + ' ' + b + (b > 1 ? ' bumps' : ' bump') + ' here · ' : b < 0 ? '<span class="gv">gives 1 here</span> · ' : '') +
-      (r.dnf ? '<b style="color:var(--give)">DNF</b> · ' : '') + (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') +
+    // One tap per player: a row of numbers centered on par. The last button opens bigger numbers.
+    const lo = Math.max(1, par - 2), big = (st.bigRow === r.player_id) || (v !== null && !px && v >= lo + 6);
+    const nums = big ? [lo + 6, lo + 7, lo + 8, lo + 9, lo + 10, lo + 11] : [lo, lo + 1, lo + 2, lo + 3, lo + 4, lo + 5];
+    const btn = n => '<button class="nb' + (!px && v === n ? ' on' : '') + (n === par ? ' par' : '') + '" data-set="' + r.player_id + '" data-n="' + n + '">' + n + '</button>';
+    h += '<div class="prow2"><div class="top"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div>' +
+      '<div class="sv' + (v === null ? ' none' : px ? ' x' : '') + '">' + (v === null ? '–' : px ? 'X' : v) + '</div></div>' +
+      '<div class="m">' + (b > 0 ? '<span class="bd"></span>'.repeat(b) + ' ' + b + (b > 1 ? ' bumps' : ' bump') + ' here · ' : b < 0 ? '<span class="gv">gives 1 here</span> · ' : '') +
+      (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') + '</div>' +
+      '<div class="nrow">' + (big ? '<button class="nb more" data-big="" aria-label="Smaller numbers">‹</button>' : '') + nums.map(btn).join('') +
+      (big ? '' : '<button class="nb more" data-big="' + r.player_id + '">' + (lo + 6) + '+</button>') + '</div>' +
       '<div class="hacts">' + (px ? '' : '<button class="linkbtn" data-pick="' + r.player_id + '">X (picked up)</button>') + (v !== null ? '<button class="linkbtn" data-clr="' + r.player_id + '">Clear</button>' : '') +
-      '<button class="linkbtn dnfb" data-dnf="' + r.player_id + '">' + (r.dnf ? 'Undo DNF' : st.dnfArm === r.player_id ? 'Confirm DNF?' : 'DNF') + '</button></div></div></div>' +
-      '<div class="stepper"><button data-adj="-1" data-p="' + r.player_id + '" aria-label="One less">−</button><div class="val' + (v === null ? ' empty' : '') + (px ? ' xv' : '') + '" data-setpar="' + r.player_id + '">' + (v === null ? 'tap' : px ? 'X' : v) + '</div><button data-adj="1" data-p="' + r.player_id + '" aria-label="One more">+</button></div></div>';
+      '<button class="linkbtn dnfb" data-dnf="' + r.player_id + '">' + (r.dnf ? 'Undo DNF' : st.dnfArm === r.player_id ? 'Confirm DNF?' : 'DNF') + '</button></div></div>';
   });
   h += '<div class="status" id="savemsg">' + saveText() + '</div>';
   h += '<div class="row2" style="margin-top:6px"><button class="btn sec" data-groupclear="1">Change group</button><button class="btn sec" data-go="check">Card check</button>' +
     (st.hole < 18 ? '<button class="btn" data-hole-step="1">Next hole ›</button>' : '') + '</div>';
-  h += '<p class="small muted" style="margin-top:12px">Tap the box to put in par, then use − and + to adjust. <b>X</b> = picked up (counts as net double bogey). <b>Clear</b> empties the box. <b>DNF</b> = he left the round: his scores so far stay on record and he’s skipped from then on. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
+  h += '<p class="small muted" style="margin-top:12px">Tap each player’s score. Par is in bold. The last button shows bigger numbers. <b>X</b> = picked up (counts as net double bogey). <b>Clear</b> empties the box. <b>DNF</b> = he left the round: his scores so far stay on record and he’s skipped from then on. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
   return h;
 }
 
@@ -796,8 +802,10 @@ app.addEventListener('click', async e => {
   if (t.id === 'vgo') { const v = (document.getElementById('vtext')?.value || '').trim(); if (v) voiceHeard(v); return; }
   if (t.id === 'vsave') { voiceSave(); return; }
   if (t.dataset.groupclear) { st.group = null; LS.del('golf.group'); render(); return; }
-  if (t.dataset.holeStep) { voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; st.hole = Math.min(18, Math.max(1, st.hole + Number(t.dataset.holeStep))); render(); window.scrollTo(0, 0); return; }
-  if (t.dataset.hole) { voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; st.hole = Number(t.dataset.hole); render(); return; }
+  if (t.dataset.holeStep) { st.bigRow = null; voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; st.hole = Math.min(18, Math.max(1, st.hole + Number(t.dataset.holeStep))); render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.hole) { st.bigRow = null; voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; st.hole = Number(t.dataset.hole); render(); return; }
+  if (t.dataset.set) { st.bigRow = null; setScore(t.dataset.set, st.hole, Number(t.dataset.n)); render(); return; }
+  if (t.dataset.big !== undefined) { st.bigRow = t.dataset.big || null; render(); return; }
   if (t.dataset.setpar) {
     const r = st.calc.rows.find(x => x.player_id === t.dataset.setpar);
     if (r && r.holes[st.hole - 1] === null) { setScore(r.player_id, st.hole, Number(st.course.holes[st.hole - 1].par)); render(); }
