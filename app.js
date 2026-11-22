@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 20;
+const APP_V = 22;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -389,24 +389,34 @@ function voiceHeard(text) {
   st.voice = { mode: 'confirm', text, live: '', parsed: P, msg: '' };
   render();
 }
+// iPhone (iOS 27) has an Apple bug: once a listening session is cut short, every later one is deaf until the
+// browser is closed. Known workaround: never cut a session (let it end by itself), and have the phone speak a
+// short phrase right before each new session. So on iPhone the phone says "Go ahead", then listens.
+let lastR = null; // the most recent recognizer; on iPhone we wait for it to finish by itself
+function settle(r) {
+  // Stop listening to a session without cutting it off (cutting it off is what breaks iPhone).
+  if (!r) return;
+  r.onresult = null; r.onaudiostart = null; r.onstart = null; r.onerror = () => {}; r.onend = null;
+  if (!IS_IOS) { try { r.abort(); } catch { /* */ } }
+}
 function voiceStart() {
   if (!SR) { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: '' }; render(); const i = document.getElementById('vtext'); if (i) i.focus(); return; }
-  vtrace('tap'); voiceStop(); // close any earlier listening session first (iPhone only allows one at a time)
+  vtrace('tap'); voiceStop();
   let r;
   try { r = new SR(); } catch (e) { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: '' }; render(); return; }
   recog = r; r.lang = 'en-US'; r.interimResults = true; r.maxAlternatives = 1; r.continuous = false;
+  r._ended = false; r.addEventListener('end', () => { r._ended = true; });
   let final = '', done = false, silence = null, heardAny = false;
   const timers = [];
-  // We decide when listening is over (iPhone doesn't always tell us), so it can never get stuck.
   const finish = (why) => {
     if (done || recog !== r) return;
     vtrace('fin:' + why + (final || st.voice.live ? ':text' : ':empty'));
     done = true; timers.forEach(clearTimeout); clearTimeout(silence);
     recogFinish = null; recog = null;
-    try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch { /* */ }
+    settle(r);
     const t = (final.trim() || st.voice.live || '').trim();
     if (t) voiceHeard(t);
-    else if (IS_IOS && why !== 'error-mic') { st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: 'I didn’t hear anything. Tap Say scores, wait for the green “Talk now”, then talk.' }; render(); }
+    else if (IS_IOS && why !== 'error-mic') { st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: 'I didn’t hear anything. Tap Say scores and talk after the phone says “Go ahead.”' }; render(); }
     else { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: why === 'error-mic' ? 'The microphone is blocked for this site, so type it or use the keyboard mic.' : 'I didn’t hear anything. Tap the mic on your keyboard, or tap Try again.' }; render(); }
   };
   recogFinish = () => finish('done');
@@ -425,12 +435,34 @@ function voiceStart() {
   r.onaudiostart = () => { vtrace('audio'); if (recog !== r) return; st.voice.ready = true; const el = document.getElementById('vcue'); if (el) { el.className = 'vcue go'; el.textContent = 'Talk now'; }
     timers.push(setTimeout(() => { if (!heardAny) finish('nothing'); }, 9000)); };
   r.onend = () => { vtrace('end'); finish('end'); };
-  timers.push(setTimeout(() => { if (!heardAny && !st.voice.ready) finish('nomic'); }, 8000));
-  timers.push(setTimeout(() => finish('max'), 25000));
   st.voice = { mode: 'listening', text: '', live: '', parsed: null, msg: '' }; render();
-  try { r.start(); vtrace('start'); } catch (e) { vtrace('starterr:' + (e.name || e)); finish('error'); }
+  const go = () => {
+    if (recog !== r) return;
+    timers.push(setTimeout(() => { if (!heardAny && !st.voice.ready) finish('nomic'); }, 8000));
+    timers.push(setTimeout(() => finish('max'), 25000));
+    try { r.start(); vtrace('start'); } catch (e) { vtrace('starterr:' + (e.name || e)); finish('error'); }
+  };
+  const prev = lastR; lastR = r;
+  if (IS_IOS && window.speechSynthesis && window.SpeechSynthesisUtterance) {
+    // Speak first (this is what wakes the iPhone mic back up), then listen when it's done talking.
+    let fired = false;
+    const afterSpeech = () => {
+      if (fired) return; fired = true; vtrace('said');
+      // If the last session is still winding down on its own, give it a moment to finish first.
+      if (prev && !prev._ended) { let n = 0; const w = setInterval(() => { if (prev._ended || ++n > 20) { clearInterval(w); vtrace(prev._ended ? 'prev-done' : 'prev-slow'); go(); } }, 150); }
+      else go();
+    };
+    try {
+      const u = new SpeechSynthesisUtterance('Go ahead'); u.rate = 1.1; u.lang = 'en-US';
+      u.onend = afterSpeech; u.onerror = afterSpeech;
+      speechSynthesis.cancel(); speechSynthesis.speak(u); vtrace('say');
+      setTimeout(afterSpeech, 3000); // in case the phone never reports the phrase finished
+    } catch (e) { afterSpeech(); }
+  } else go();
 }
 let recogFinish = null;
+// Belt and braces against iPhone zooming when + or − is tapped quickly.
+document.addEventListener('dblclick', e => { if (e.target.closest('button, .val')) e.preventDefault(); }, { passive: false });
 const vlog = [];
 let vsendTimer = null;
 const vsid = (() => { try { let x = sessionStorage.getItem('golf.vsid'); if (!x) { x = Math.random().toString(36).slice(2, 8); sessionStorage.setItem('golf.vsid', x); } return x; } catch { return 'x'; } })();
@@ -443,7 +475,7 @@ function vtrace(x) {
   vsendTimer = setTimeout(() => { rpc('golf_log', { p_msg: 'v' + APP_V + ' ' + vsid + ' h' + st.hole + ' sr=' + !!SR + ' ios=' + IS_IOS + ' | ' + vlog.join(' > '), p_ua: navigator.userAgent }).catch(() => {}); }, 1200);
 }
 function vtraceText() { return 'mic check: ' + (IOS_OTHER ? 'chrome' : SR ? 'listen' : 'box') + ' · ' + vlog.join(' › '); }
-function voiceStop() { recogFinish = null; if (recog) { const r = recog; recog = null; try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch { /* */ } } }
+function voiceStop() { recogFinish = null; if (recog) { const r = recog; recog = null; settle(r); } }
 function voiceSave() {
   const P = st.voice.parsed; if (!P) return;
   vtrace('saved' + (P.hole || st.hole));
