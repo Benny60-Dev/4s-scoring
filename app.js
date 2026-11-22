@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 30;
+const APP_V = 31;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -289,20 +289,26 @@ function scoreView() {
     }).join('') + (st.round.status === 'final' ? '<div class="status">This round is final. Only the moderator can change scores.</div>' : '');
   }
   const c = st.course, i = st.hole - 1, par = Number(c.holes[i].par);
-  let h = '<div class="holehead"><button class="circ" data-hole-step="-1" aria-label="Previous hole">‹</button><div style="text-align:center"><div class="big">Hole ' + st.hole + '</div><div class="meta">Par ' + par + ' · Hcp ' + c.holes[i].si_m + '</div></div><button class="circ" data-hole-step="1" aria-label="Next hole">›</button></div>';
+  const locked = !!cardLock(grp.group) || (!!st.checks.find(x => x.group_no === grp.group));
+  let h = lockBanner(grp) + '<div class="holehead"><button class="circ" data-hole-step="-1" aria-label="Previous hole">‹</button><div style="text-align:center"><div class="big">Hole ' + st.hole + '</div><div class="meta">Par ' + par + ' · Hcp ' + c.holes[i].si_m + '</div></div><button class="circ" data-hole-step="1" aria-label="Next hole">›</button></div>';
   h += '<div class="strip">' + c.holes.map((_, k) => {
     const done = grp.rows.every(r => r.holes[k] !== null || r.dnf);
     return '<button data-hole="' + (k + 1) + '" class="' + (k === i ? 'on' : done ? 'done' : '') + '">' + (k + 1) + '</button>';
   }).join('') + '</div>';
   grp.rows.forEach(r => {
     if (r.dnf && r.holes[i] === null) {
-      h += '<div class="prow" style="opacity:.6"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m"><b style="color:var(--give)">DNF</b> · left the round · <button class="linkbtn" data-dnf="' + r.player_id + '">Undo DNF</button></div></div></div>';
+      h += '<div class="prow" style="opacity:.6"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m"><b style="color:var(--give)">DNF</b> · left the round' + (locked ? '' : ' · <button class="linkbtn" data-dnf="' + r.player_id + '">Undo DNF</button>') + '</div></div></div>';
       return;
     }
     const v = r.holes[i], b = r.bumps[i], px = r.picked[i];
     const tp = r.played ? C.fmtToPar(r.grossToPar) : '';
     // Compact row: − [score] +. Tapping the score opens the iPhone's scroll wheel to pick a number.
     const opts = '<option value="">–</option>' + Array.from({ length: 15 }, (_, k) => k + 1).map(n => '<option value="' + n + '"' + (!px && v === n ? ' selected' : '') + '>' + n + (n === par ? '  (par)' : '') + '</option>').join('') + '<option value="0"' + (px ? ' selected' : '') + '>X (picked up)</option>';
+    if (locked) {
+      h += '<div class="prow"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m">' + (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') + '</div></div>' +
+        '<div class="stepper"><div class="val ro' + (v === null ? ' empty' : '') + (px ? ' xv' : '') + '">' + (v === null ? '–' : px ? 'X' : v) + '</div></div></div>';
+      return;
+    }
     h += '<div class="prow"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m">' +
       (b > 0 ? '<span class="bd"></span>'.repeat(b) + ' ' + b + (b > 1 ? ' bumps' : ' bump') + ' here · ' : b < 0 ? '<span class="gv">gives 1 here</span> · ' : '') +
       (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') +
@@ -314,9 +320,11 @@ function scoreView() {
       '<button data-adj="1" data-p="' + r.player_id + '" aria-label="One more">+</button></div></div>';
   });
   h += '<div class="status" id="savemsg">' + saveText() + '</div>';
-  h += '<div class="row2" style="margin-top:6px"><button class="btn sec" data-groupclear="1">Change group</button><button class="btn sec" data-go="check">Card check</button>' +
-    (st.hole < 18 ? '<button class="btn" data-hole-step="1">Next hole ›</button>' : '') + '</div>';
-  h += '<p class="small muted" style="margin-top:12px">Tap the score box to scroll to a number, or use − and +. <b>X</b> = picked up (counts as net double bogey). <b>Clear</b> empties the box. <b>DNF</b> = he left the round: his scores so far stay on record and he’s skipped from then on. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
+  const allIn = grp.rows.every(r => r.dnf || r.played === 18);
+  if (!locked && (allIn || st.hole === 18)) h += '<button class="btn" data-go="check" style="width:100%;margin-top:6px">Round complete — view the card</button>';
+  h += '<div class="row2" style="margin-top:6px"><button class="btn sec" data-groupclear="1">Change group</button><button class="btn sec" data-go="check">' + (locked ? 'View card' : 'Card check') + '</button>' +
+    (st.hole < 18 ? '<button class="btn' + (allIn && !locked ? ' sec' : '') + '" data-hole-step="1">Next hole ›</button>' : '') + '</div>';
+  if (!locked) h += '<p class="small muted" style="margin-top:12px">Tap the score box to scroll to a number, or use − and +. <b>X</b> = picked up (counts as net double bogey). <b>Clear</b> empties the box. <b>DNF</b> = he left the round: his scores so far stay on record and he’s skipped from then on. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
   return h;
 }
 
@@ -516,14 +524,17 @@ function checkView() {
   };
   const missing = grp.rows.reduce((a, r) => a + (r.dnf ? 0 : 18 - r.played), 0);
   const chk = st.checks.find(x => x.group_no === grp.group);
-  let h = '<h2>Card check · Group ' + grp.group + '</h2><p class="small muted">Hold the paper card next to this and compare hole by hole.</p>' + half(0) + half(9);
-  if (chk) {
-    h += '<div class="verified">✓ Verified by ' + esc(chk.verified_by) + ' · ' + new Date(chk.verified_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '</div>' +
-      '<button class="btn warn" id="unverify" style="width:100%">Something’s wrong — undo verified</button>';
+  let h = '<h2>Card check · Group ' + grp.group + '</h2><p class="small muted">Hold the paper card next to this and compare every hole and total.</p>' + half(0) + half(9);
+  const lk = cardLock(grp.group);
+  if (lk === 'final' || lk === 'day') {
+    h += lockBanner(grp);
+  } else if (chk) {
+    h += '<div class="verified">🔒 Locked · checked by ' + esc(chk.verified_by) + ' · ' + new Date(chk.verified_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '</div>' +
+      '<button class="btn warn" id="makechanges" style="width:100%">' + (st.unlockArm ? 'Tap again to unlock and make changes' : 'Something’s wrong — make changes') + '</button>';
   } else {
     h += (missing ? '<div class="status" style="color:var(--give)">' + missing + ' score' + (missing > 1 ? 's' : '') + ' still missing (red boxes).</div>' : '') +
       '<div class="card"><label class="f">Your name (the one holding the paper card)<input class="in" id="vname" value="' + esc(LS.get('golf.vname') || '') + '"></label>' +
-      '<button class="btn" id="verify" style="width:100%;margin-top:10px"' + (missing ? ' disabled' : '') + '>Card matches — mark verified</button><div class="status" id="vmsg"></div></div>';
+      '<button class="btn" id="verify" style="width:100%;margin-top:10px"' + (missing ? ' disabled' : '') + '>Card matches — lock it</button><p class="small muted" style="margin:6px 0 0">Locking stops accidental changes. You can still unlock it today with Make changes.</p><div class="status" id="vmsg"></div></div>';
   }
   h += '<div class="row2"><button class="btn sec" data-go="score">‹ Back to scores</button></div>';
   return h;
@@ -822,6 +833,13 @@ app.addEventListener('click', async e => {
     if (next < 1) next = 1; if (next > 15) next = 15;
     setScore(r.player_id, st.hole, next); render(); return;
   }
+  if (t.id === 'makechanges') {
+    if (!st.unlockArm) { st.unlockArm = true; render(); setTimeout(() => { if (st.unlockArm) { st.unlockArm = false; render(); } }, 5000); return; }
+    st.unlockArm = false;
+    try { await rpc('golf_verify_group', { p_pin: st.scoreCode || st.adminCode, p_round: st.roundId, p_group: st.group, p_name: '', p_verified: false }); await refresh(false); render(); }
+    catch (err) { alertLine(err.message); }
+    return;
+  }
   if (t.id === 'verify' || t.id === 'unverify') {
     const name = (document.getElementById('vname')?.value || '').trim();
     if (t.id === 'verify' && !name) { const m = document.getElementById('vmsg'); if (m) m.textContent = 'Type your name first.'; return; }
@@ -917,6 +935,23 @@ app.addEventListener('change', async e => {
   }
   editField(el, true);
 });
+// Locks: a verified card is locked; the whole round locks for scorekeepers once its day is over. The moderator can always edit.
+function todayAZ() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Phoenix' }).format(new Date()); }
+function dayOver() { return !!(st.round && st.round.play_date && st.round.play_date < todayAZ()); }
+function cardLock(groupNo) {
+  if (st.adminCode) return null;
+  if (st.round && st.round.status === 'final') return 'final';
+  if (dayOver()) return 'day';
+  return st.checks.find(x => x.group_no === groupNo) ? 'card' : null;
+}
+function lockBanner(grp) {
+  const chk = st.checks.find(x => x.group_no === grp.group);
+  const lk = cardLock(grp.group);
+  if (lk === 'final') return '<div class="lockbar">🔒 This round is final. Only the moderator can change scores.</div>';
+  if (lk === 'day') return '<div class="lockbar">🔒 Round locked — the day is over. Only the moderator can change scores.</div>';
+  if (!chk) return '';
+  return '<div class="lockbar">🔒 Card locked · checked by ' + esc(chk.verified_by) + '<button class="btn sec" id="makechanges" style="margin-top:8px;width:100%">' + (st.unlockArm ? 'Tap again to unlock and make changes' : 'Make changes') + '</button></div>';
+}
 function gsize() { return Number(LS.get('golf.gsize')) === 5 ? 5 : 4; }
 function wheelSave(el) {
   if (el.value === el.dataset.cur) return;
