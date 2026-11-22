@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 15;
+const APP_V = 16;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -308,6 +308,7 @@ function scoreView() {
       '<div class="stepper"><button data-adj="-1" data-p="' + r.player_id + '" aria-label="One less">−</button><div class="val' + (v === null ? ' empty' : '') + (px ? ' xv' : '') + '" data-setpar="' + r.player_id + '">' + (v === null ? 'tap' : px ? 'X' : v) + '</div><button data-adj="1" data-p="' + r.player_id + '" aria-label="One more">+</button></div></div>';
   });
   h += voicePanel(grp);
+  h += '<div id="vtrace" class="small muted" style="font-size:11px;opacity:.7;margin-top:4px">' + esc(vtraceText()) + '</div>';
   h += '<div class="status" id="savemsg">' + saveText() + '</div>';
   h += '<div class="row2" style="margin-top:6px"><button class="btn sec" data-groupclear="1">Change group</button><button class="btn sec" data-go="check">Card check</button>' +
     (st.hole < 18 ? '<button class="btn" data-hole-step="1">Next hole ›</button>' : '') + '</div>';
@@ -372,6 +373,7 @@ async function setDnf(pid) {
 }
 function groupNow() { return st.calc && st.calc.groups.find(g => g.group === st.group); }
 function voiceHeard(text) {
+  vtrace('heard');
   const grp = groupNow(); if (!grp) return;
   const playing = h => grp.rows.filter(r => !(r.dnf && r.holes[h - 1] === null)).map(r => ({ player_id: r.player_id, name: r.name }));
   let P = C.parseSpokenScores(text, playing(st.hole), Number(st.course.holes[st.hole - 1].par));
@@ -381,7 +383,7 @@ function voiceHeard(text) {
 }
 function voiceStart() {
   if (!SR) { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: '' }; render(); const i = document.getElementById('vtext'); if (i) i.focus(); return; }
-  voiceStop(); // close any earlier listening session first (iPhone only allows one at a time)
+  vtrace('tap'); voiceStop(); // close any earlier listening session first (iPhone only allows one at a time)
   let r;
   try { r = new SR(); } catch (e) { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: '' }; render(); return; }
   recog = r; r.lang = 'en-US'; r.interimResults = true; r.maxAlternatives = 1; r.continuous = false;
@@ -390,6 +392,7 @@ function voiceStart() {
   // We decide when listening is over (iPhone doesn't always tell us), so it can never get stuck.
   const finish = (why) => {
     if (done || recog !== r) return;
+    vtrace('fin:' + why + (final || st.voice.live ? ':text' : ':empty'));
     done = true; timers.forEach(clearTimeout); clearTimeout(silence);
     recogFinish = null; recog = null;
     try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch { /* */ }
@@ -400,6 +403,7 @@ function voiceStart() {
   recogFinish = () => finish('done');
   r.onresult = ev => {
     if (recog !== r) return;
+    if (!heardAny) vtrace('words');
     heardAny = true;
     let interim = '';
     for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) final += t + ' '; else interim += t; }
@@ -407,17 +411,22 @@ function voiceStart() {
     const el = document.getElementById('vlive'); if (el) el.textContent = st.voice.live;
     clearTimeout(silence); silence = setTimeout(() => finish('quiet'), 1800); // 1.8 seconds of quiet = done talking
   };
-  r.onerror = ev => { if (recog !== r) return; if (ev.error === 'aborted') return; finish(ev.error === 'not-allowed' ? 'error-mic' : 'error'); };
-  r.onend = () => finish('end');
+  r.onerror = ev => { vtrace('err:' + ev.error); if (recog !== r) return; if (ev.error === 'aborted') return; finish(ev.error === 'not-allowed' ? 'error-mic' : 'error'); };
+  r.onstart = () => vtrace('on'); r.onaudiostart = () => vtrace('audio');
+  r.onend = () => { vtrace('end'); finish('end'); };
   timers.push(setTimeout(() => { if (!heardAny) finish('nothing'); }, 7000));
   timers.push(setTimeout(() => finish('max'), 15000));
   st.voice = { mode: 'listening', text: '', live: '', parsed: null, msg: '' }; render();
-  try { r.start(); } catch (e) { finish('error'); }
+  try { r.start(); vtrace('start'); } catch (e) { vtrace('starterr:' + (e.name || e)); finish('error'); }
 }
 let recogFinish = null;
+const vlog = [];
+function vtrace(x) { vlog.push(x); if (vlog.length > 14) vlog.shift(); const el = document.getElementById('vtrace'); if (el) el.textContent = vtraceText(); }
+function vtraceText() { return 'mic check: ' + (IOS_OTHER ? 'chrome' : SR ? 'listen' : 'box') + ' · ' + vlog.join(' › '); }
 function voiceStop() { recogFinish = null; if (recog) { const r = recog; recog = null; try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch { /* */ } } }
 function voiceSave() {
   const P = st.voice.parsed; if (!P) return;
+  vtrace('saved' + (P.hole || st.hole));
   if (P.hole) st.hole = P.hole;
   P.scores.forEach(s => setScore(s.player_id, st.hole, s.strokes));
   const grp = groupNow();
@@ -829,7 +838,7 @@ let quickTimer = null;
 app.addEventListener('input', e => {
   const el = e.target;
   // Dictation types as you talk; 1.8 seconds with no new words = done, so check it.
-  if (el.id === 'vquick') { clearTimeout(quickTimer); quickTimer = setTimeout(() => { const v = (document.getElementById('vquick')?.value || '').trim(); if (v && /\d|[a-z]{3}/i.test(v)) voiceHeard(v); }, 1800); return; }
+  if (el.id === 'vquick') { if (!el.dataset.t) { el.dataset.t = 1; vtrace('typing'); } clearTimeout(quickTimer); quickTimer = setTimeout(() => { const v = (document.getElementById('vquick')?.value || '').trim(); if (v && /\d|[a-z]{3}/i.test(v)) voiceHeard(v); }, 1800); return; }
   if (el.id === 'imptext') { st.admin.importText = el.value; const pv = document.getElementById('impprev'); if (pv) pv.innerHTML = importPreview(); return; }
   if (el.id === 'bq') { st.bumpQuery = el.value; const b = document.getElementById('blist'); if (b) b.innerHTML = bumpList(el.value.trim().toLowerCase()); return; }
   editField(el, false);
