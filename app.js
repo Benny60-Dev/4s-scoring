@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 22;
+const APP_V = 23;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -984,6 +984,7 @@ async function checkUpdate() {
 document.addEventListener('visibilitychange', async () => { if (!document.hidden) checkUpdate(); if (!document.hidden && view() !== 'admin') { await refresh(false); render(); scheduleFlush(100); } });
 
 (async () => {
+  checkUpdate(); // an old saved copy switches to the newest version right away
   await refresh(true);
   vtrace('open');
   try { const R = JSON.parse(LS.get('golf.resume') || 'null'); LS.del('golf.resume'); if (R && Date.now() - R.t < 300000) { st.hole = R.hole; st.voice.msg = R.msg; } } catch { /* */ }
