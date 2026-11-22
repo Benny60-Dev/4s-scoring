@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 29;
+const APP_V = 30;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -596,7 +596,8 @@ function adminRound() {
     '<label class="f">Net skins handicap %<input class="in" inputmode="numeric" data-s="skins_allowance" value="' + esc(S.skins_allowance) + '"></label></div></div>';
   const inRound = new Map(D.entries.map(e => [e.player_id, e]));
   const active = st.players.filter(p => p.active || inRound.has(p.id));
-  h += '<div class="card"><h2>Who’s playing (' + D.entries.length + ')</h2><div class="row2" style="margin-bottom:8px"><button class="btn sec" id="addall">Add everyone</button><button class="btn sec" id="autogroups">Make groups of 4</button><button class="btn sec" id="refreshidx">Update indexes</button></div>' +
+  h += '<div class="card"><h2>Who’s playing (' + D.entries.length + ')</h2><div class="row2" style="margin-bottom:8px"><button class="btn sec" id="addall">Add everyone</button><button class="btn sec" id="autogroups">Make groups</button><button class="btn sec" id="refreshidx">Update indexes</button></div>' +
+    '<label class="f" style="margin-bottom:8px">Group size<select class="in" id="gsize"><option value="4"' + (gsize() === 4 ? ' selected' : '') + '>Foursomes (a fivesome only if the numbers need it)</option><option value="5"' + (gsize() === 5 ? ' selected' : '') + '>Up to 5 per group</option></select></label>' +
     '<p class="small muted">Tick who’s playing. G/N = plays for the Gross or Net prizes. Index is copied from the player list; “Update indexes” copies the latest.</p>';
   if (!active.length) h += '<div class="empty">No players yet — add them on the Players tab.</div>';
   active.forEach(p => {
@@ -863,9 +864,15 @@ app.addEventListener('click', async e => {
     render(); amsg('Added. Set groups, then Save.'); return;
   }
   if (t.id === 'autogroups') {
-    const D = A.draft; const n = D.entries.length; const groups = Math.max(1, Math.ceil(n / 4));
+    const D = A.draft; const n = D.entries.length;
+    let groups;
+    if (gsize() === 5) groups = Math.max(1, Math.ceil(n / 5));
+    else { groups = Math.max(1, Math.floor(n / 4)); if (Math.ceil(n / groups) > 5) groups = Math.ceil(n / 5); }
     D.entries.forEach((e, k) => { e.group_no = (k % groups) + 1; });
-    render(); amsg('Split into ' + groups + ' groups. Fivesomes happen when the numbers don’t divide by 4. Adjust any, then Save.'); return;
+    const sizes = Array.from({ length: groups }, (_, g) => D.entries.filter(e => e.group_no === g + 1).length);
+    const fives = sizes.filter(x => x === 5).length, fours = sizes.filter(x => x === 4).length, other = groups - fives - fours;
+    const parts = [fours && fours + (fours === 1 ? ' foursome' : ' foursomes'), fives && fives + (fives === 1 ? ' fivesome' : ' fivesomes'), other && other + ' smaller ' + (other === 1 ? 'group' : 'groups')].filter(Boolean);
+    render(); amsg('Made ' + (parts.join(' and ') || '1 group') + '. Change any group number by hand, then tap Save.'); return;
   }
   if (t.id === 'refreshidx') {
     A.draft.entries.forEach(e => { const p = st.players.find(x => x.id === e.player_id); if (p) e.hcp_index = p.hcp_index === null ? '' : C.fmtIndex(Number(p.hcp_index)); });
@@ -897,6 +904,7 @@ function firstOpenHole() {
 
 app.addEventListener('change', async e => {
   const el = e.target;
+  if (el.id === 'gsize') { LS.set('golf.gsize', el.value); return; }
   if (el.dataset && el.dataset.wheel) { wheelSave(el); return; }
   if (el.id === 'impround') { st.admin.importRound = el.checked; return; }
   if (el.dataset && el.dataset.impadd !== undefined) { if (el.checked) st.admin.importAdd.add(el.dataset.impadd); else st.admin.importAdd.delete(el.dataset.impadd); return; }
@@ -909,6 +917,7 @@ app.addEventListener('change', async e => {
   }
   editField(el, true);
 });
+function gsize() { return Number(LS.get('golf.gsize')) === 5 ? 5 : 4; }
 function wheelSave(el) {
   if (el.value === el.dataset.cur) return;
   if (el.value === '') { if (el.dataset.cur !== '') { el.dataset.cur = ''; setScore(el.dataset.wheel, st.hole, null); render(); } return; }
