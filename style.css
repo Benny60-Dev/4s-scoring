@@ -138,3 +138,5 @@ textarea.in{resize:vertical;line-height:1.5}
 /* no double-tap zoom: tap + and − as fast as you like */
 html,body,button,a,input,.stepper,.val{touch-action:manipulation}
 button,.val{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+.hacts .dnfb{color:#666}
+.hacts{flex-wrap:wrap;row-gap:4px}.hacts .linkbtn{white-space:nowrap}.hacts .dnfb.arm{color:var(--give)}

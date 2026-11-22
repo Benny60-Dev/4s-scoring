@@ -1,5 +1,6 @@
 import * as C from './calc.js?v=12';
-const APP_V = 24;
+const APP_V = 25;
+const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -295,7 +296,7 @@ function scoreView() {
   }).join('') + '</div>';
   grp.rows.forEach(r => {
     if (r.dnf && r.holes[i] === null) {
-      h += '<div class="prow" style="opacity:.6"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m"><b style="color:var(--give)">DNF</b> · not playing' + (st.adminCode ? ' · <button class="linkbtn" data-dnf="' + r.player_id + '">Undo DNF</button>' : '') + '</div></div></div>';
+      h += '<div class="prow" style="opacity:.6"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m"><b style="color:var(--give)">DNF</b> · left the round · <button class="linkbtn" data-dnf="' + r.player_id + '">Undo DNF</button></div></div></div>';
       return;
     }
     const v = r.holes[i], b = r.bumps[i], px = r.picked[i];
@@ -303,16 +304,14 @@ function scoreView() {
     h += '<div class="prow"><div class="who"><div class="n">' + teeDot(c, r.entry.tee) + esc(r.name) + '</div><div class="m">' +
       (b > 0 ? '<span class="bd"></span>'.repeat(b) + ' ' + b + (b > 1 ? ' bumps' : ' bump') + ' here · ' : b < 0 ? '<span class="gv">gives 1 here</span> · ' : '') +
       (r.dnf ? '<b style="color:var(--give)">DNF</b> · ' : '') + (r.played ? 'Thru ' + r.played + ': ' + r.gross + ' (' + tp + ')' : 'No scores yet') +
-      (st.adminCode ? ' · <button class="linkbtn" data-dnf="' + r.player_id + '">' + (r.dnf ? 'Undo DNF' : 'Mark DNF') + '</button>' : '') +
-      '<div class="hacts">' + (px ? '' : '<button class="linkbtn" data-pick="' + r.player_id + '">X (picked up)</button>') + (v !== null ? '<button class="linkbtn" data-clr="' + r.player_id + '">Clear</button>' : '') + '</div></div></div>' +
+      '<div class="hacts">' + (px ? '' : '<button class="linkbtn" data-pick="' + r.player_id + '">X (picked up)</button>') + (v !== null ? '<button class="linkbtn" data-clr="' + r.player_id + '">Clear</button>' : '') +
+      '<button class="linkbtn dnfb" data-dnf="' + r.player_id + '">' + (r.dnf ? 'Undo DNF' : st.dnfArm === r.player_id ? 'Confirm DNF?' : 'DNF') + '</button></div></div></div>' +
       '<div class="stepper"><button data-adj="-1" data-p="' + r.player_id + '" aria-label="One less">−</button><div class="val' + (v === null ? ' empty' : '') + (px ? ' xv' : '') + '" data-setpar="' + r.player_id + '">' + (v === null ? 'tap' : px ? 'X' : v) + '</div><button data-adj="1" data-p="' + r.player_id + '" aria-label="One more">+</button></div></div>';
   });
-  h += voicePanel(grp);
-  h += '<div id="vtrace" class="small muted" style="font-size:11px;opacity:.7;margin-top:4px">' + esc(vtraceText()) + '</div>';
   h += '<div class="status" id="savemsg">' + saveText() + '</div>';
   h += '<div class="row2" style="margin-top:6px"><button class="btn sec" data-groupclear="1">Change group</button><button class="btn sec" data-go="check">Card check</button>' +
     (st.hole < 18 ? '<button class="btn" data-hole-step="1">Next hole ›</button>' : '') + '</div>';
-  h += '<p class="small muted" style="margin-top:12px">Tap the box to put in par, then use − and + to adjust. <b>X</b> = picked up (counts as net double bogey). <b>Clear</b> empties the box. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
+  h += '<p class="small muted" style="margin-top:12px">Tap the box to put in par, then use − and + to adjust. <b>X</b> = picked up (counts as net double bogey). <b>Clear</b> empties the box. <b>DNF</b> = he left the round: his scores so far stay on record and he’s skipped from then on. Scores save as you go. If you lose signal they wait on your phone and send when you’re back in range.</p>';
   return h;
 }
 
@@ -365,19 +364,15 @@ function voicePanel(grp) {
   return h + '</div>';
 }
 async function setDnf(pid) {
-  if (!st.adminCode || !st.round) return;
-  const S = C.settingsOf(st.round);
-  const cur = new Set(S.dnf || []);
-  if (cur.has(pid)) cur.delete(pid); else cur.add(pid);
-  const settings = { ...(st.round.settings || {}), dnf: [...cur] };
-  const entries = st.entries.map(e => { const x = { ...e }; delete x.round_id; return x; });
+  if (!st.round || !(st.scoreCode || st.adminCode)) return;
+  const isDnf = (C.settingsOf(st.round).dnf || []).map(String).includes(String(pid));
+  // Marking DNF takes two taps so nobody does it by accident. Undo is one tap.
+  if (!isDnf && st.dnfArm !== pid) { st.dnfArm = pid; render(); setTimeout(() => { if (st.dnfArm === pid) { st.dnfArm = null; render(); } }, 4000); return; }
+  st.dnfArm = null;
   try {
-    await rpc('golf_admin', { p_pin: st.adminCode, p_action: 'save_round', p_data: { id: st.round.id, play_date: st.round.play_date, name: st.round.name, course_id: st.round.course_id, settings, entries } });
+    await rpc('golf_set_dnf', { p_pin: st.scoreCode || st.adminCode, p_round: st.round.id, p_player: pid, p_dnf: !isDnf });
     await refresh(true); st.admin.draft = null; render();
-  } catch (e) {
-    if (/moderator code needed|wrong code/i.test(e.message || '')) { st.adminCode = ''; LS.del('golf.adminCode'); }
-    st.err = e.message; render();
-  }
+  } catch (e) { st.err = e.message; render(); }
 }
 function groupNow() { return st.calc && st.calc.groups.find(g => g.group === st.group); }
 function voiceHeard(text) {
@@ -477,6 +472,7 @@ function vtrace(x) {
   vlog.push(x + (x === 'open' ? '' : '@' + ((Date.now() - vt0) / 1000).toFixed(1))); if (vlog.length > 14) vlog.shift(); const el = document.getElementById('vtrace'); if (el) el.textContent = vtraceText();
   // Send the mic steps to Claude's test log so problems can be fixed without screenshots.
   clearTimeout(vsendTimer);
+  if (!VOICE_ON) return;
   vsendTimer = setTimeout(() => { rpc('golf_log', { p_msg: 'v' + APP_V + ' ' + vsid + ' h' + st.hole + ' sr=' + !!SR + ' ios=' + IS_IOS + ' | ' + vlog.join(' > '), p_ua: navigator.userAgent }).catch(() => {}); }, 1200);
 }
 function vtraceText() { return 'mic check: ' + (IOS_OTHER ? 'chrome' : SR ? 'listen' : 'box') + ' · ' + vlog.join(' › '); }
@@ -991,7 +987,6 @@ document.addEventListener('visibilitychange', async () => { if (!document.hidden
 (async () => {
   checkUpdate(); // an old saved copy switches to the newest version right away
   await refresh(true);
-  vtrace('open');
   try { const R = JSON.parse(LS.get('golf.resume') || 'null'); LS.del('golf.resume'); if (R && Date.now() - R.t < 300000) { st.hole = R.hole; st.voice.msg = R.msg; } } catch { /* */ }
   render();
   if (queue.length) scheduleFlush(500);
