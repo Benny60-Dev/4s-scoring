@@ -374,7 +374,7 @@ function adminView() {
   return h;
 }
 function newRoundDraft() {
-  const course = st.courses[0];
+  const course = st.courses.find(c => c.id === st.round?.course_id) || st.courses.find(c => /san juan oaks/i.test(c.name)) || st.courses[0];
   const today = new Date(); const iso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
   return { id: '', play_date: iso, name: '', course_id: course?.id || '', settings: JSON.parse(JSON.stringify(C.DEFAULT_SETTINGS)), entries: [] };
 }
