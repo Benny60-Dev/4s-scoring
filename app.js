@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 23;
+const APP_V = 24;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -335,7 +335,7 @@ function voicePanel(grp) {
   const live = grp.rows.filter(r => !(r.dnf && r.holes[st.hole - 1] === null)); const names = (live.length ? live : grp.rows).map(r => r.name.split(' ')[0]).join(', ');
   if (V.mode === 'idle') {
     // No built-in listening here (iPhone Chrome): a real text box you tap once, so the keyboard comes right up.
-    if (!SR) return '<div class="vq"><span class="vqmic">' + MIC + '</span><input class="in" id="vquick" autocomplete="off" autocorrect="off" enterkeyhint="go" placeholder="Tap here, then the 🎤 on the keyboard"></div>' +
+    if (!SR || micStuck()) return (micStuck() && SR ? '<div class="small" style="color:#8a5a00;margin:4px 0">The iPhone mic got stuck (an Apple bug). Use the box: tap it, then the 🎤 on your keyboard. Closing and reopening the app resets the one-tap mic.</div>' : '') + '<div class="vq"><span class="vqmic">' + MIC + '</span><input class="in" id="vquick" autocomplete="off" autocorrect="off" enterkeyhint="go" placeholder="Tap here, then the 🎤 on the keyboard"></div>' +
       '<div class="small muted" style="margin:2px 0 4px">Say the scores in order (' + esc(names) + '). It checks them as soon as you stop talking.</div>' + (V.msg ? '<div class="status ok">' + esc(V.msg) + '</div>' : '');
     return '<button class="btn sec" id="voice" style="width:100%;margin:4px 0 2px">' + MIC + 'Say scores</button>' + (V.msg ? '<div class="status ok">' + esc(V.msg) + '</div>' : '');
   }
@@ -392,7 +392,8 @@ function voiceHeard(text) {
 // iPhone (iOS 27) has an Apple bug: once a listening session is cut short, every later one is deaf until the
 // browser is closed. Known workaround: never cut a session (let it end by itself), and have the phone speak a
 // short phrase right before each new session. So on iPhone the phone says "Go ahead", then listens.
-let lastR = null; // the most recent recognizer; on iPhone we wait for it to finish by itself
+let lastR = null;
+function micStuck() { try { return IS_IOS && sessionStorage.getItem('golf.micStuck') === '1'; } catch { return false; } } // the most recent recognizer; on iPhone we wait for it to finish by itself
 function settle(r) {
   // Stop listening to a session without cutting it off (cutting it off is what breaks iPhone).
   if (!r) return;
@@ -416,7 +417,11 @@ function voiceStart() {
     settle(r);
     const t = (final.trim() || st.voice.live || '').trim();
     if (t) voiceHeard(t);
-    else if (IS_IOS && why !== 'error-mic') { st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: 'I didn’t hear anything. Tap Say scores and talk after the phone says “Go ahead.”' }; render(); }
+    else if (IS_IOS && why !== 'error-mic') {
+      // Mic was on but deaf: that's the Apple bug. Switch to the keyboard-mic box until the app is reopened.
+      if (why === 'nothing' || why === 'nomic' || why === 'end') { try { sessionStorage.setItem('golf.micStuck', '1'); } catch { /* */ } vtrace('stuck'); }
+      st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; render();
+    }
     else { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: why === 'error-mic' ? 'The microphone is blocked for this site, so type it or use the keyboard mic.' : 'I didn’t hear anything. Tap the mic on your keyboard, or tap Try again.' }; render(); }
   };
   recogFinish = () => finish('done');
