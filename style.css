@@ -127,3 +127,5 @@ h3{font-size:15px;margin:14px 0 8px}
 
 .hmark{width:40px;height:40px;background:#fff;border-radius:10px;padding:3px;object-fit:contain;flex:none}
 .biglogo{display:block;width:100%;max-width:320px;height:auto;margin:4px auto 14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 12px}
+
+textarea.in{resize:vertical;line-height:1.5}

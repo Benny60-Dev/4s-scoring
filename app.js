@@ -51,7 +51,7 @@ const st = {
   tab: LS.get('golf.tab') || 'gross', open: {},
   scoreCode: LS.get('golf.scoreCode') || '', adminCode: LS.get('golf.adminCode') || '',
   group: Number(LS.get('golf.group')) || null, hole: 1, saveMsg: '', bumpQuery: '',
-  admin: { tab: 'round', draft: null, msg: '', msgCls: '', armed: null, playersDraft: null, courseDraft: null },
+  admin: { tab: 'round', draft: null, msg: '', msgCls: '', armed: null, playersDraft: null, courseDraft: null, importing: false, importText: '', importAdd: new Set(), importRound: true },
 };
 let queue = [];
 try { queue = JSON.parse(LS.get('golf.queue') || '[]'); } catch { queue = []; }
@@ -436,9 +436,10 @@ function entryFromPlayer(p, groupNo) {
 function adminPlayers() {
   const A = st.admin;
   if (!A.playersDraft) A.playersDraft = st.players.map(p => ({ ...p, hcp_index: p.hcp_index === null ? '' : C.fmtIndex(Number(p.hcp_index)), _dirty: false }));
-  const tees = (st.courses[0]?.tees || []).map(t => t.name);
-  let h = '<p class="small muted">Look each player up in the GHIN app (Golfers → search) and type their Handicap Index. Plus handicaps like +1.5. Changes here don’t change a round already set up — use “Update indexes” on the Round tab.</p>';
-  h += '<button class="btn sec" id="addplayer" style="width:100%;margin-bottom:10px">+ Add player</button>';
+  if (A.importing) return importPanel();
+  const tees = ((st.course || st.courses[0])?.tees || []).map(t => t.name);
+  let h = '<p class="small muted">Look each player up in the GHIN app (Golfers → search) and type their Handicap Index, or paste a whole list with <b>Import handicaps</b>. Plus handicaps like +1.5. Changes here don’t change a round already set up — use “Update indexes” on the Round tab.</p>';
+  h += '<div class="row2" style="margin-bottom:10px"><button class="btn sec" id="addplayer">+ Add player</button><button class="btn sec" id="impopen">Import handicaps</button></div>';
   A.playersDraft.forEach((p, k) => {
     h += '<div class="prow2"' + (p.active ? '' : ' style="opacity:.55"') + '><div class="top"><input class="in" data-pp="name" data-k="' + k + '" placeholder="Name" value="' + esc(p.name) + '" style="font-weight:700"></div>' +
       '<div class="minis"><label>GHIN #<input class="in sm" inputmode="numeric" data-pp="ghin" data-k="' + k + '" value="' + esc(p.ghin || '') + '"></label>' +
@@ -450,6 +451,59 @@ function adminPlayers() {
       '<label>Active<select class="in sm" data-pp="active" data-k="' + k + '"><option value="true"' + (p.active ? ' selected' : '') + '>Yes</option><option value="false"' + (!p.active ? ' selected' : '') + '>No</option></select></label></div></div>';
   });
   return h;
+}
+function importRows() { return C.matchRoster(C.parseRoster(st.admin.importText || ''), st.players); }
+function importPreview() {
+  const A = st.admin, rows = importRows();
+  if (!rows.length) return '<p class="small muted" style="margin:8px 0 0">The preview shows up here as you paste.</p>';
+  const changes = rows.filter(r => r.status === 'change').length;
+  let h = '<h3>Preview</h3><table class="lb"><thead><tr><th class="l">Player</th><th>Was</th><th>Now</th></tr></thead><tbody>';
+  rows.forEach((r, i) => {
+    if (r.status === 'unmatched') {
+      h += '<tr><td class="l" colspan="3" style="color:#8a5a00"><b>' + esc(r.name || r.ghin || r.raw) + '</b> ' + C.fmtIndex(r.index) + ' — not found<br><label class="chk small" style="margin-top:4px"><input type="checkbox" data-impadd="' + esc(r.raw) + '"' + (A.importAdd.has(r.raw) ? ' checked' : '') + (r.name ? '' : ' disabled') + '> Add as a new player</label></td></tr>';
+    } else if (r.status === 'noindex') {
+      h += '<tr><td class="l" colspan="3" class="muted"><span class="small muted">Skipped: no index found in “' + esc(r.raw) + '”</span></td></tr>';
+    } else {
+      h += '<tr><td class="l">' + esc(r.player.name) + (r.how === 'ghin' ? ' <span class="small muted">(GHIN #)</span>' : '') + (r.addGhin ? '<br><span class="small muted">saves GHIN # ' + esc(r.ghin) + '</span>' : '') + '</td><td>' + (r.old === null ? '—' : C.fmtIndex(r.old)) + '</td><td' + (r.status === 'change' ? ' class="money"' : ' class="muted small"') + '>' + (r.status === 'change' ? C.fmtIndex(r.index) : 'no change') + '</td></tr>';
+    }
+  });
+  h += '</tbody></table><p class="small" style="margin:0">' + changes + ' index change' + (changes === 1 ? '' : 's') + ' ready. Nothing is saved until you tap Save.</p>';
+  return h;
+}
+function importPanel() {
+  const A = st.admin;
+  const open = st.round && st.round.status !== 'final';
+  return '<div class="card"><h2>Import handicaps</h2><p class="small muted">Paste one player per line: a name or GHIN number, then the Handicap Index. Commas, tabs or spaces all work, so you can paste straight from an email, a spreadsheet or a club roster.</p>' +
+    '<textarea class="in" id="imptext" rows="7" placeholder="Benny Molini, 14.6&#10;Omar Prieto 12.4&#10;1234567, 8.9" style="font-family:ui-monospace,Menlo,monospace;font-size:15px">' + esc(A.importText || '') + '</textarea>' +
+    (open ? '<label class="chk" style="margin-top:10px"><input type="checkbox" id="impround"' + (A.importRound ? ' checked' : '') + '> Also update today’s round (' + esc(st.round.name || fmtDate(st.round.play_date)) + ')</label>' : '') +
+    '<div id="impprev">' + importPreview() + '</div>' +
+    '<button class="btn sec" id="impcancel" style="width:100%;margin-top:10px">Cancel</button></div>';
+}
+async function importSave() {
+  const A = st.admin, rows = importRows();
+  const changes = rows.filter(r => r.status === 'change' || (r.status === 'same' && r.addGhin));
+  const adds = rows.filter(r => r.status === 'unmatched' && r.name && A.importAdd.has(r.raw));
+  if (!changes.length && !adds.length) return amsg('Nothing to update yet. Paste a list first.', 'err');
+  amsg('Saving…');
+  const changed = new Map();
+  for (const r of changes) {
+    const p = r.player;
+    await rpc('golf_admin', { p_pin: st.adminCode, p_action: 'save_player', p_data: { id: p.id, name: p.name, ghin: r.addGhin ? r.ghin : (p.ghin || ''), hcp_index: r.index, gender: p.gender, flight: p.flight, default_tee: p.default_tee || '', game: p.game, active: p.active } });
+    changed.set(p.id, r.index);
+  }
+  const teeNames = ((st.course || st.courses[0])?.tees || []).map(t => t.name);
+  for (const r of adds) {
+    await rpc('golf_admin', { p_pin: st.adminCode, p_action: 'save_player', p_data: { id: null, name: r.name, ghin: r.ghin, hcp_index: r.index, gender: 'm', flight: 1, default_tee: teeNames.includes('Gold') ? 'Gold' : (teeNames[0] || ''), game: 'net', active: true } });
+  }
+  let roundNote = '';
+  if (A.importRound && st.round && st.round.status !== 'final' && st.entries.some(e => changed.has(e.player_id))) {
+    const entries = st.entries.map(e => { const x = { ...e }; delete x.round_id; if (changed.has(e.player_id)) x.hcp_index = changed.get(e.player_id); return x; });
+    await rpc('golf_admin', { p_pin: st.adminCode, p_action: 'save_round', p_data: { id: st.round.id, play_date: st.round.play_date, name: st.round.name, course_id: st.round.course_id, settings: st.round.settings, entries } });
+    roundNote = ' and today’s round';
+  }
+  A.importing = false; A.importText = ''; A.playersDraft = null; A.draft = null;
+  await refresh(true); render();
+  amsg('Updated ' + changes.length + ' player' + (changes.length === 1 ? '' : 's') + (adds.length ? ', added ' + adds.length : '') + roundNote + ' ✓', 'ok');
 }
 function adminCourse() {
   const A = st.admin;
@@ -495,6 +549,8 @@ async function adminSave() {
       const res = await rpc('golf_admin', { p_pin: st.adminCode, p_action: 'save_round', p_data: { id: D.id || null, play_date: D.play_date, name: D.name, course_id: D.course_id, settings: D.settings, entries } });
       st.roundId = res.id; LS.set('golf.round', res.id);
       await refresh(true); A.draft = draftFromRound(); render(); amsg('Round saved ✓', 'ok');
+    } else if (A.tab === 'players' && A.importing) {
+      await importSave();
     } else if (A.tab === 'players') {
       const dirty = A.playersDraft.filter(p => p._dirty);
       for (const p of dirty) {
@@ -571,7 +627,7 @@ app.addEventListener('click', async e => {
     return;
   }
   // moderator
-  if (t.dataset.atab) { A.tab = t.dataset.atab; A.msg = ''; A.armed = null; render(); return; }
+  if (t.dataset.atab) { A.tab = t.dataset.atab; A.msg = ''; A.armed = null; A.importing = false; render(); return; }
   if (t.id === 'asave') { adminSave(); return; }
   if (t.id === 'newround') { A.draft = newRoundDraft(); render(); amsg('Fill it in, tick who’s playing, then Save.'); return; }
   if (t.id === 'togglestatus') {
@@ -599,6 +655,8 @@ app.addEventListener('click', async e => {
     A.draft.entries.forEach(e => { const p = st.players.find(x => x.id === e.player_id); if (p) e.hcp_index = p.hcp_index === null ? '' : C.fmtIndex(Number(p.hcp_index)); });
     render(); amsg('Indexes copied from the player list. Tap Save.'); return;
   }
+  if (t.id === 'impopen') { A.importing = true; A.importText = ''; A.importAdd = new Set(); A.importRound = true; A.msg = ''; render(); const ta = document.getElementById('imptext'); if (ta) ta.focus(); return; }
+  if (t.id === 'impcancel') { A.importing = false; A.msg = ''; render(); return; }
   if (t.id === 'addplayer') { A.playersDraft.unshift({ id: '', name: '', ghin: '', hcp_index: '', gender: 'm', flight: 1, default_tee: 'Gold', game: 'net', active: true, _dirty: true }); render(); const f = app.querySelector('[data-pp="name"][data-k="0"]'); if (f) f.focus(); return; }
   if (t.id === 'savecodes') {
     const s = document.getElementById('newscorer').value.trim(), a = document.getElementById('newadmin').value.trim();
@@ -623,6 +681,8 @@ function firstOpenHole() {
 
 app.addEventListener('change', async e => {
   const el = e.target;
+  if (el.id === 'impround') { st.admin.importRound = el.checked; return; }
+  if (el.dataset && el.dataset.impadd !== undefined) { if (el.checked) st.admin.importAdd.add(el.dataset.impadd); else st.admin.importAdd.delete(el.dataset.impadd); return; }
   if (el.id === 'rsel') { st.roundId = el.value; LS.set('golf.round', el.value); st.loading = true; render(); await refresh(false); st.admin.draft = null; render(); return; }
   if (el.dataset.play) {
     const D = st.admin.draft;
@@ -634,6 +694,7 @@ app.addEventListener('change', async e => {
 });
 app.addEventListener('input', e => {
   const el = e.target;
+  if (el.id === 'imptext') { st.admin.importText = el.value; const pv = document.getElementById('impprev'); if (pv) pv.innerHTML = importPreview(); return; }
   if (el.id === 'bq') { st.bumpQuery = el.value; const b = document.getElementById('blist'); if (b) b.innerHTML = bumpList(el.value.trim().toLowerCase()); return; }
   editField(el, false);
 });

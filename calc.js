@@ -251,3 +251,52 @@ export function fmt1(v) {
   const r = round1(v);
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
+
+// ---------- handicap roster import ----------
+// One player per line: a name and/or a GHIN number, plus a Handicap Index ("+1.5" = plus handicap).
+// Commas, tabs or spaces all work; extra columns (club name, dates) are ignored.
+const IDX_RE = /^\+?\d{1,2}(\.\d)?$/;
+const GHIN_RE = /^\d{5,10}$/;
+export function normName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+export function parseRoster(text) {
+  const out = [];
+  String(text || '').split(/\r?\n/).forEach(line => {
+    const raw = line.trim();
+    if (!raw) return;
+    const tokens = raw.split(/[,\t;|]+|\s+/).map(t => t.trim()).filter(Boolean);
+    let index = null, indexText = '', ghin = '';
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      if (IDX_RE.test(tokens[i]) && parseIndex(tokens[i]) !== null) { index = parseIndex(tokens[i]); indexText = tokens[i]; tokens.splice(i, 1); break; }
+    }
+    const gi = tokens.findIndex(t => GHIN_RE.test(t));
+    if (gi >= 0) { ghin = tokens[gi]; tokens.splice(gi, 1); }
+    const name = tokens.filter(t => /[a-z]/i.test(t)).join(' ');
+    // "Last, First" written with a comma: keep both orders for matching.
+    const commaParts = raw.split(',').map(s => s.trim());
+    const flipped = commaParts.length >= 2 && /^[a-z' .-]+$/i.test(commaParts[0]) && /^[a-z' .-]+$/i.test(commaParts[1])
+      ? commaParts[1] + ' ' + commaParts[0] : '';
+    out.push({ raw, name, flipped, ghin, index, indexText });
+  });
+  return out;
+}
+export function matchRoster(rows, players) {
+  const byGhin = new Map(players.filter(p => p.ghin).map(p => [String(p.ghin).trim(), p]));
+  const byName = new Map(players.map(p => [normName(p.name), p]));
+  const byNameRev = new Map(players.map(p => { const w = normName(p.name).split(' '); return [w.length > 1 ? [w[w.length - 1], ...w.slice(0, -1)].join(' ') : w[0], p]; }));
+  return rows.map(r => {
+    let p = null, how = '';
+    if (r.ghin && byGhin.has(r.ghin)) { p = byGhin.get(r.ghin); how = 'ghin'; }
+    const n = normName(r.name), f = normName(r.flipped);
+    if (!p && n) { p = byName.get(n) || byNameRev.get(n) || null; if (p) how = 'name'; }
+    if (!p && f) { p = byName.get(f) || null; if (p) how = 'name'; }
+    const old = p ? num(p.hcp_index) : null;
+    let status;
+    if (r.index === null) status = 'noindex';
+    else if (!p) status = 'unmatched';
+    else if (old !== null && Math.abs(old - r.index) < 0.05) status = 'same';
+    else status = 'change';
+    return { ...r, player: p, how, old, status, addGhin: !!(p && r.ghin && !p.ghin) };
+  });
+}
