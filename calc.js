@@ -307,7 +307,9 @@ export function matchRoster(rows, players) {
 
 // ---------- spoken scores ----------
 // "Benny 5, Omar four, Dale bogey, Tony par" -> strokes for each player in the group.
-const NUMWORDS = { zero: 0, one: 1, won: 1, two: 2, to: 2, too: 2, three: 3, tree: 3, four: 4, for: 4, fore: 4, five: 5, six: 6, sex: 6, seven: 7, eight: 8, ate: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+const NUMWORDS = { zero: 0, one: 1, won: 1, wan: 1, two: 2, to: 2, too: 2, tu: 2, three: 3, tree: 3, free: 3, thre: 3,
+  four: 4, for: 4, fore: 4, floor: 4, fourth: 4, five: 5, friday: 5, fife: 5, hive: 5, fives: 5, fiver: 5, fi: 5,
+  six: 6, sex: 6, sics: 6, sicks: 6, sax: 6, seven: 7, sevens: 7, eight: 8, ate: 8, eat: 8, ape: 8, nine: 9, nein: 9, ten: 10, tin: 10, eleven: 11, twelve: 12 };
 const RELWORDS = { par: 0, birdie: -1, birdy: -1, eagle: -2, bogey: 1, bogie: 1, boogie: 1, double: 2, triple: 3, quad: 4 };
 function lev(a, b) {
   const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
@@ -315,6 +317,7 @@ function lev(a, b) {
   for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
   return d[m][n];
 }
+const FILLER = new Set(['and', 'got', 'had', 'made', 'shot', 'a', 'an', 'the', 'is', 'was', 'has', 'with', 'on', 'he', 'then', 'score', 'scores', 'okay', 'ok', 'um', 'uh', 'gets', 'get', 'put', 'give', 'him', 'me', 'i']);
 // players: [{player_id, name}] in group order. Returns {hole, scores:[{player_id, name, strokes}], unknown:[words]}
 export function parseSpokenScores(text, players, par, holeCount = 18) {
   let words = String(text || '').toLowerCase().replace(/[^a-z0-9+\s-]/g, ' ').split(/\s+/).filter(Boolean);
@@ -332,14 +335,28 @@ export function parseSpokenScores(text, players, par, holeCount = 18) {
     return { p, first: parts[0] || '', last: parts[parts.length - 1] || '' };
   });
   const firstCount = {}; keys.forEach(k => { firstCount[k.first] = (firstCount[k.first] || 0) + 1; });
+  const sound = x => x.replace(/(ie|ey|ee|i)$/, 'y').replace(/ph/g, 'f');
+  function nearest(w) {
+    // Closest first or last name in the group: accepted at 1 letter off, or 2 off when the first letter matches and nobody else is as close.
+    if (w.length < 3 || w in NUMWORDS || w in RELWORDS) return null;
+    const cands = [];
+    keys.forEach(k => { [k.first, k.last].forEach(n => { if (n) cands.push({ k, d: lev(sound(w), sound(n)), first: n[0] === w[0] }); }); });
+    cands.sort((a, b) => a.d - b.d);
+    const best = cands[0]; if (!best) return null;
+    const tie = cands.find(c => c.k !== best.k && c.d === best.d);
+    if (tie) return null;
+    if (best.d <= 1 || (best.d <= 2 && best.first && w.length >= 4)) return best.k;
+    return null;
+  }
   function whoIs(w, next) {
-    const sound = x => x.replace(/(ie|ey|ee|i)$/, 'y').replace(/ph/g, 'f');
     const close = (a, b) => a === b || sound(a) === sound(b) || (a.length >= 4 && b.length >= 4 && lev(sound(a), sound(b)) <= 1);
     let hits = keys.filter(k => close(w, k.last) && k.last !== k.first);
     if (hits.length === 1) return { k: hits[0], used: 1 };
     hits = keys.filter(k => close(w, k.first));
     if (hits.length > 1 && next) { const h2 = hits.filter(k => close(next, k.last)); if (h2.length === 1) return { k: h2[0], used: 2 }; }
     if (hits.length === 1) return { k: hits[0], used: hits[0].last && next && close(next, hits[0].last) ? 2 : 1 };
+    const near = nearest(w);
+    if (near) return { k: near, used: near.last && next && close(next, near.last) ? 2 : 1 };
     return null;
   }
   function scoreOf(w, next) {
@@ -353,7 +370,7 @@ export function parseSpokenScores(text, players, par, holeCount = 18) {
     }
     return null;
   }
-  const found = new Map(), unknown = [], loose = [];
+  const found = new Map(), unknown = [], loose = [], pending = [];
   let cur = null;
   for (let i = 0; i < words.length;) {
     const w = words[i], nx = words[i + 1];
@@ -364,8 +381,17 @@ export function parseSpokenScores(text, players, par, holeCount = 18) {
     if (s && !cur) { loose.push(s.v); i += s.used; continue; }
     const who = whoIs(w, nx);
     if (who) { cur = who.k; i += who.used; continue; }
-    if (!['and', 'got', 'had', 'made', 'shot', 'a', 'an', 'the', 'is', 'was', 'has', 'with', 'on', 'he', 'then', 'score', 'scores', 'okay', 'ok', 'um', 'uh'].includes(w)) unknown.push(w);
+    if (!cur && nx && scoreOf(nx, words[i + 2]) && /^[a-z]{3,}$/.test(w) && !FILLER.has(w)) pending.push({ w, s: scoreOf(nx, words[i + 2]), at: i });
+    if (!FILLER.has(w)) unknown.push(w);
     i++;
+  }
+  // A word we couldn't place, right before a score, and exactly one player left without a score: that's him.
+  const left = keys.filter(k => !found.has(k.p.player_id));
+  if (pending.length === 1 && left.length === 1) {
+    const pd = pending[0];
+    found.set(left[0].p.player_id, { player_id: left[0].p.player_id, name: left[0].p.name, strokes: pd.s.v });
+    const ui = unknown.indexOf(pd.w); if (ui >= 0) unknown.splice(ui, 1);
+    const li = loose.indexOf(pd.s.v); if (li >= 0) loose.splice(li, 1);
   }
   // Just numbers, one per player in group order.
   if (!found.size && loose.length === players.length) players.forEach((p, i) => found.set(p.player_id, { player_id: p.player_id, name: p.name, strokes: loose[i] }));

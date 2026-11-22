@@ -22,4 +22,11 @@ assert.deepEqual(s('3,554'), { b: 3, o: 5, d: 5, t: 4 });
 assert.deepEqual(s('35 54'), { b: 3, o: 5, d: 5, t: 4 });
 assert.deepEqual(s('Benny 5 Omar 4 Dale 10 Tony 6'), { b: 5, o: 4, d: 10, t: 6 });   // real double digits stay
 const rh = C.parseSpokenScores('hole 12 3554', g, 4); assert.equal(rh.hole, 12); assert.equal(rh.scores.length, 4);
+// iPhone mishearings from the real test
+assert.deepEqual(s('Betty Friday Dale Friday'), { b: 5, d: 5 });
+assert.deepEqual(s('Benny Friday Omar floor Dale ate Tony sex'), { b: 5, o: 4, d: 8, t: 6 });
+assert.deepEqual(s('Tommy 4 Benny 5 Omar 6 Dale 7'), { t: 4, b: 5, o: 6, d: 7 });   // Tommy -> Tony
+assert.deepEqual(s('Benny 5 Omar 4 Dale 6 Zorba 4'), { b: 5, o: 4, d: 6, t: 4 });   // last unknown name -> the one player left
+// a random word that's not close to anyone isn't guessed when two players are still missing
+assert.deepEqual(s('Benny 5 Zorba 4'), { b: 5 });
 console.log('all voice tests passed');
