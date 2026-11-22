@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 19;
+const APP_V = 20;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -341,7 +341,7 @@ function voicePanel(grp) {
   }
   let h = '<div class="card" style="border:2px solid var(--g2)">';
   if (V.mode === 'listening') {
-    h += '<h3 style="margin-top:0">' + MIC + 'Listening…</h3><p class="small muted">Say each name and score, like “' + esc(grp.rows[0].name.split(' ')[0]) + ' 5, ' + esc((grp.rows[1] || grp.rows[0]).name.split(' ')[0]) + ' par”.</p>' +
+    h += '<div id="vcue" class="vcue' + (V.ready ? ' go' : '') + '">' + (V.ready ? 'Talk now' : 'Getting the mic ready…') + '</div><h3 style="margin-top:0">' + MIC + 'Listening…</h3><p class="small muted">Say each name and score, like “' + esc(grp.rows[0].name.split(' ')[0]) + ' 5, ' + esc((grp.rows[1] || grp.rows[0]).name.split(' ')[0]) + ' par”.</p>' +
       '<div id="vlive" style="min-height:24px;font-size:17px">' + esc(V.live || '') + '</div><div class="row2" style="margin-top:8px"><button class="btn sec" id="vcancel">Cancel</button><button class="btn" id="vdone">Done</button></div>';
   } else if (V.mode === 'type') {
     h += '<h3 style="margin-top:0">Say or type the scores</h3><p class="small muted">' + esc(V.msg || 'Tap the 🎤 on your keyboard, say the scores, then tap Check.') + ' Example: “' + esc(names.split(', ')[0]) + ' 5, ' + esc(names.split(', ')[1] || names.split(', ')[0]) + ' par”.</p>' +
@@ -406,7 +406,7 @@ function voiceStart() {
     try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch { /* */ }
     const t = (final.trim() || st.voice.live || '').trim();
     if (t) voiceHeard(t);
-    else if (IS_IOS && why !== 'error-mic') { st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: 'I didn’t hear anything. Tap Say scores and try again.' }; render(); freshStart(st.hole, st.voice.msg); }
+    else if (IS_IOS && why !== 'error-mic') { st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: 'I didn’t hear anything. Tap Say scores, wait for the green “Talk now”, then talk.' }; render(); }
     else { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: why === 'error-mic' ? 'The microphone is blocked for this site, so type it or use the keyboard mic.' : 'I didn’t hear anything. Tap the mic on your keyboard, or tap Try again.' }; render(); }
   };
   recogFinish = () => finish('done');
@@ -421,10 +421,12 @@ function voiceStart() {
     clearTimeout(silence); silence = setTimeout(() => finish('quiet'), 1800); // 1.8 seconds of quiet = done talking
   };
   r.onerror = ev => { vtrace('err:' + ev.error); if (recog !== r) return; if (ev.error === 'aborted') return; finish(ev.error === 'not-allowed' ? 'error-mic' : 'error'); };
-  r.onstart = () => vtrace('on'); r.onaudiostart = () => vtrace('audio');
+  r.onstart = () => vtrace('on');
+  r.onaudiostart = () => { vtrace('audio'); if (recog !== r) return; st.voice.ready = true; const el = document.getElementById('vcue'); if (el) { el.className = 'vcue go'; el.textContent = 'Talk now'; }
+    timers.push(setTimeout(() => { if (!heardAny) finish('nothing'); }, 9000)); };
   r.onend = () => { vtrace('end'); finish('end'); };
-  timers.push(setTimeout(() => { if (!heardAny) finish('nothing'); }, 7000));
-  timers.push(setTimeout(() => finish('max'), 15000));
+  timers.push(setTimeout(() => { if (!heardAny && !st.voice.ready) finish('nomic'); }, 8000));
+  timers.push(setTimeout(() => finish('max'), 25000));
   st.voice = { mode: 'listening', text: '', live: '', parsed: null, msg: '' }; render();
   try { r.start(); vtrace('start'); } catch (e) { vtrace('starterr:' + (e.name || e)); finish('error'); }
 }
@@ -432,8 +434,10 @@ let recogFinish = null;
 const vlog = [];
 let vsendTimer = null;
 const vsid = (() => { try { let x = sessionStorage.getItem('golf.vsid'); if (!x) { x = Math.random().toString(36).slice(2, 8); sessionStorage.setItem('golf.vsid', x); } return x; } catch { return 'x'; } })();
+let vt0 = Date.now();
 function vtrace(x) {
-  vlog.push(x); if (vlog.length > 14) vlog.shift(); const el = document.getElementById('vtrace'); if (el) el.textContent = vtraceText();
+  if (x === 'tap') vt0 = Date.now();
+  vlog.push(x + (x === 'open' ? '' : '@' + ((Date.now() - vt0) / 1000).toFixed(1))); if (vlog.length > 14) vlog.shift(); const el = document.getElementById('vtrace'); if (el) el.textContent = vtraceText();
   // Send the mic steps to Claude's test log so problems can be fixed without screenshots.
   clearTimeout(vsendTimer);
   vsendTimer = setTimeout(() => { rpc('golf_log', { p_msg: 'v' + APP_V + ' ' + vsid + ' h' + st.hole + ' sr=' + !!SR + ' ios=' + IS_IOS + ' | ' + vlog.join(' > '), p_ua: navigator.userAgent }).catch(() => {}); }, 1200);
@@ -451,7 +455,6 @@ function voiceSave() {
   if (done && st.hole < 18) st.hole += 1;
   st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: saved + (done && st.hole <= 18 ? ' Now on hole ' + st.hole + '.' : '') };
   render(); window.scrollTo(0, 0);
-  if (IS_IOS && SR) freshStart(st.hole, st.voice.msg);
 }
 // ---------- card check ----------
 function checkView() {
@@ -755,7 +758,7 @@ app.addEventListener('click', async e => {
   if (t.dataset.dnf) { setDnf(t.dataset.dnf); return; }
   if (t.id === 'voice') { voiceStart(); return; }
   if (t.id === 'vcancel') { voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; render(); return; }
-  if (t.id === 'vretry') { if (IS_IOS && SR && vlog.includes('start')) { st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: 'Ready. Tap Say scores.' }; render(); freshStart(st.hole, st.voice.msg); return; } voiceStop(); voiceStart(); return; }
+  if (t.id === 'vretry') { voiceStop(); voiceStart(); return; }
   if (t.id === 'vdone') { if (recogFinish) recogFinish(); return; }
   if (t.id === 'vgo') { const v = (document.getElementById('vtext')?.value || '').trim(); if (v) voiceHeard(v); return; }
   if (t.id === 'vsave') { voiceSave(); return; }

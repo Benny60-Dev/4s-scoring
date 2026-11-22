@@ -133,3 +133,4 @@ textarea.in{resize:vertical;line-height:1.5}
 
 .hacts{margin-top:4px;display:flex;gap:14px}.hacts .linkbtn{font-size:13px}.val.xv{color:var(--give)}
 .vq{position:relative;margin:4px 0 2px}.vq .in{padding-left:42px;height:54px;font-size:17px;border:2px solid var(--g2);border-radius:14px}.vqmic{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--g2);display:flex}
+.vcue{font-weight:800;font-size:20px;text-align:center;padding:10px;border-radius:12px;margin-bottom:10px;background:#eee;color:#777}.vcue.go{background:#1f7a3a;color:#fff}
