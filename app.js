@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 17;
+const APP_V = 18;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -320,7 +320,15 @@ const MIC = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke=
 // Chrome, Firefox and Edge on iPhone show the speech feature but it only half works (Apple limits it to Safari).
 // There we use the text box + the keyboard's own mic, which works every time.
 const IOS_OTHER = /CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(navigator.userAgent);
-const SR = IOS_OTHER ? null : (window.SpeechRecognition || window.webkitSpeechRecognition || null);
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+// iPhone/iPad: the mic only works cleanly once per page load, so after each hole the app quietly reloads itself
+// (same as opening it fresh). Scores are already saved on the phone, so nothing is lost.
+const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function freshStart(hole, msg) {
+  voiceStop();
+  LS.set('golf.resume', JSON.stringify({ hole, msg, t: Date.now() }));
+  setTimeout(() => location.reload(), 250);
+}
 let recog = null;
 function voicePanel(grp) {
   const V = st.voice;
@@ -398,6 +406,7 @@ function voiceStart() {
     try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch { /* */ }
     const t = (final.trim() || st.voice.live || '').trim();
     if (t) voiceHeard(t);
+    else if (IS_IOS && why !== 'error-mic') { st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: 'I didn’t hear anything. Tap Say scores and try again.' }; render(); freshStart(st.hole, st.voice.msg); }
     else { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: why === 'error-mic' ? 'The microphone is blocked for this site, so type it or use the keyboard mic.' : 'I didn’t hear anything. Tap the mic on your keyboard, or tap Try again.' }; render(); }
   };
   recogFinish = () => finish('done');
@@ -435,6 +444,7 @@ function voiceSave() {
   if (done && st.hole < 18) st.hole += 1;
   st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: saved + (done && st.hole <= 18 ? ' Now on hole ' + st.hole + '.' : '') };
   render(); window.scrollTo(0, 0);
+  if (IS_IOS && SR) freshStart(st.hole, st.voice.msg);
 }
 // ---------- card check ----------
 function checkView() {
@@ -738,7 +748,7 @@ app.addEventListener('click', async e => {
   if (t.dataset.dnf) { setDnf(t.dataset.dnf); return; }
   if (t.id === 'voice') { voiceStart(); return; }
   if (t.id === 'vcancel') { voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; render(); return; }
-  if (t.id === 'vretry') { voiceStop(); voiceStart(); return; }
+  if (t.id === 'vretry') { if (IS_IOS && SR && vlog.includes('start')) { st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: 'Ready. Tap Say scores.' }; render(); freshStart(st.hole, st.voice.msg); return; } voiceStop(); voiceStart(); return; }
   if (t.id === 'vdone') { if (recogFinish) recogFinish(); return; }
   if (t.id === 'vgo') { const v = (document.getElementById('vtext')?.value || '').trim(); if (v) voiceHeard(v); return; }
   if (t.id === 'vsave') { voiceSave(); return; }
@@ -933,6 +943,7 @@ document.addEventListener('visibilitychange', async () => { if (!document.hidden
 
 (async () => {
   await refresh(true);
+  try { const R = JSON.parse(LS.get('golf.resume') || 'null'); LS.del('golf.resume'); if (R && Date.now() - R.t < 300000) { st.hole = R.hole; st.voice.msg = R.msg; } } catch { /* */ }
   render();
   if (queue.length) scheduleFlush(500);
 })();
