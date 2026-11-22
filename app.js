@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 13;
+const APP_V = 14;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -316,7 +316,10 @@ function scoreView() {
 }
 
 const MIC = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="vertical-align:-4px;margin-right:6px"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>';
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+// Chrome, Firefox and Edge on iPhone show the speech feature but it only half works (Apple limits it to Safari).
+// There we use the text box + the keyboard's own mic, which works every time.
+const IOS_OTHER = /CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(navigator.userAgent);
+const SR = IOS_OTHER ? null : (window.SpeechRecognition || window.webkitSpeechRecognition || null);
 let recog = null;
 function voicePanel(grp) {
   const V = st.voice;
@@ -329,7 +332,7 @@ function voicePanel(grp) {
     h += '<h3 style="margin-top:0">' + MIC + 'Listening…</h3><p class="small muted">Say each name and score, like “' + esc(grp.rows[0].name.split(' ')[0]) + ' 5, ' + esc((grp.rows[1] || grp.rows[0]).name.split(' ')[0]) + ' par”.</p>' +
       '<div id="vlive" style="min-height:24px;font-size:17px">' + esc(V.live || '') + '</div><div class="row2" style="margin-top:8px"><button class="btn sec" id="vcancel">Cancel</button><button class="btn" id="vdone">Done</button></div>';
   } else if (V.mode === 'type') {
-    h += '<h3 style="margin-top:0">Say or type the scores</h3><p class="small muted">' + esc(V.msg || 'Tap the microphone on your keyboard and say the scores.') + ' Example: “' + esc(names.split(', ')[0]) + ' 5, ' + esc(names.split(', ')[1] || names.split(', ')[0]) + ' par”.</p>' +
+    h += '<h3 style="margin-top:0">Say or type the scores</h3><p class="small muted">' + esc(V.msg || 'Tap the 🎤 on your keyboard, say the scores, then tap Check.') + ' Example: “' + esc(names.split(', ')[0]) + ' 5, ' + esc(names.split(', ')[1] || names.split(', ')[0]) + ' par”.</p>' +
       '<input class="in" id="vtext" autocomplete="off" placeholder="Benny 5, Omar par…" value="' + esc(V.text || '') + '">' +
       '<div class="row2" style="margin-top:8px"><button class="btn sec" id="vcancel">Cancel</button><button class="btn" id="vgo">Check</button></div>';
   } else if (V.mode === 'confirm') {
