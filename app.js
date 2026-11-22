@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 28;
+const APP_V = 29;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -589,11 +589,11 @@ function adminRound() {
   h += '<div class="card"><h2>Money</h2><div class="grid2">' +
     '<label class="f">Gross places paid<input class="in" data-s="gross_pay" value="' + esc((S.payouts.gross || []).join(', ')) + '"></label>' +
     '<label class="f">Net places paid<input class="in" data-s="net_pay" value="' + esc((S.payouts.net || []).join(', ')) + '"></label></div>' +
-    '<p class="small muted" style="margin:4px 0 8px">Dollars per place in each flight, e.g. 40, 30, 20.</p><div class="grid3">' +
-    '<label class="f">Deuce $ each<input class="in" inputmode="decimal" data-s="deuce_buyin" value="' + esc(S.deuce_buyin) + '"></label>' +
+    '<p class="small muted" style="margin:4px 0 10px">Dollars per place in each flight, e.g. 40, 30, 20.</p><div class="grid2">' +
     '<label class="f">Gross skins $<input class="in" inputmode="decimal" data-s="gross_skins_buyin" value="' + esc(S.gross_skins_buyin) + '"></label>' +
-    '<label class="f">Net skins $<input class="in" inputmode="decimal" data-s="net_skins_buyin" value="' + esc(S.net_skins_buyin) + '"></label></div>' +
-    '<label class="f" style="margin-top:8px;max-width:180px">Net skins handicap %<input class="in" inputmode="numeric" data-s="skins_allowance" value="' + esc(S.skins_allowance) + '"></label></div>';
+    '<label class="f">Net skins $<input class="in" inputmode="decimal" data-s="net_skins_buyin" value="' + esc(S.net_skins_buyin) + '"></label>' +
+    '<label class="f">Deuce $ each<input class="in" inputmode="decimal" data-s="deuce_buyin" value="' + esc(S.deuce_buyin) + '"></label>' +
+    '<label class="f">Net skins handicap %<input class="in" inputmode="numeric" data-s="skins_allowance" value="' + esc(S.skins_allowance) + '"></label></div></div>';
   const inRound = new Map(D.entries.map(e => [e.player_id, e]));
   const active = st.players.filter(p => p.active || inRound.has(p.id));
   h += '<div class="card"><h2>Who’s playing (' + D.entries.length + ')</h2><div class="row2" style="margin-bottom:8px"><button class="btn sec" id="addall">Add everyone</button><button class="btn sec" id="autogroups">Make groups of 4</button><button class="btn sec" id="refreshidx">Update indexes</button></div>' +
