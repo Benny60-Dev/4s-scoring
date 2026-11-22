@@ -318,6 +318,9 @@ function lev(a, b) {
 // players: [{player_id, name}] in group order. Returns {hole, scores:[{player_id, name, strokes}], unknown:[words]}
 export function parseSpokenScores(text, players, par, holeCount = 18) {
   let words = String(text || '').toLowerCase().replace(/[^a-z0-9+\s-]/g, ' ').split(/\s+/).filter(Boolean);
+  // Phones often run spoken numbers together ("3 5 5 4" -> "3554"). No hole score is over 15, so split those into digits.
+  // Leave a number right after "hole" alone ("hole 12").
+  words = words.flatMap((w, i) => (/^\d+$/.test(w) && Number(w) > 15 && words[i - 1] !== 'hole') ? w.split('') : [w]);
   let hole = null;
   const hi = words.findIndex((w, i) => w === 'hole' && i + 1 < words.length);
   if (hi >= 0) {

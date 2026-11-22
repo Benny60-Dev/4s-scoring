@@ -16,4 +16,10 @@ assert.deepEqual(s('Benny to Omar 5', 3), { b: 2, o: 5 });              // "to" 
 const g2 = [{ player_id: 'a', name: 'Mike Delgado' }, { player_id: 'c', name: 'Mike Jones' }];
 assert.deepEqual(Object.fromEntries(C.parseSpokenScores('Mike Jones 5 Delgado 4', g2, 4).scores.map(x => [x.player_id, x.strokes])), { c: 5, a: 4 });
 assert.equal(C.parseSpokenScores('Mike 5', g2, 4).scores.length, 0);
+// iPhone joins spoken numbers together
+assert.deepEqual(s('3554'), { b: 3, o: 5, d: 5, t: 4 });
+assert.deepEqual(s('3,554'), { b: 3, o: 5, d: 5, t: 4 });
+assert.deepEqual(s('35 54'), { b: 3, o: 5, d: 5, t: 4 });
+assert.deepEqual(s('Benny 5 Omar 4 Dale 10 Tony 6'), { b: 5, o: 4, d: 10, t: 6 });   // real double digits stay
+const rh = C.parseSpokenScores('hole 12 3554', g, 4); assert.equal(rh.hole, 12); assert.equal(rh.scores.length, 4);
 console.log('all voice tests passed');
