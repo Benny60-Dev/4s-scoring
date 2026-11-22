@@ -132,3 +132,4 @@ textarea.in{resize:vertical;line-height:1.5}
 .linkbtn{background:none;border:0;padding:0;color:var(--give);font-weight:650;font-size:12.5px;text-decoration:underline;cursor:pointer}
 
 .hacts{margin-top:4px;display:flex;gap:14px}.hacts .linkbtn{font-size:13px}.val.xv{color:var(--give)}
+.vq{position:relative;margin:4px 0 2px}.vq .in{padding-left:42px;height:54px;font-size:17px;border:2px solid var(--g2);border-radius:14px}.vqmic{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--g2);display:flex}

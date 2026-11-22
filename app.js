@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 14;
+const APP_V = 15;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -325,6 +325,9 @@ function voicePanel(grp) {
   const V = st.voice;
   const live = grp.rows.filter(r => !(r.dnf && r.holes[st.hole - 1] === null)); const names = (live.length ? live : grp.rows).map(r => r.name.split(' ')[0]).join(', ');
   if (V.mode === 'idle') {
+    // No built-in listening here (iPhone Chrome): a real text box you tap once, so the keyboard comes right up.
+    if (!SR) return '<div class="vq"><span class="vqmic">' + MIC + '</span><input class="in" id="vquick" autocomplete="off" autocorrect="off" enterkeyhint="go" placeholder="Tap here, then the 🎤 on the keyboard"></div>' +
+      '<div class="small muted" style="margin:2px 0 4px">Say the scores in order (' + esc(names) + '). It checks them as soon as you stop talking.</div>' + (V.msg ? '<div class="status ok">' + esc(V.msg) + '</div>' : '');
     return '<button class="btn sec" id="voice" style="width:100%;margin:4px 0 2px">' + MIC + 'Say scores</button>' + (V.msg ? '<div class="status ok">' + esc(V.msg) + '</div>' : '');
   }
   let h = '<div class="card" style="border:2px solid var(--g2)">';
@@ -822,8 +825,11 @@ app.addEventListener('change', async e => {
   }
   editField(el, true);
 });
+let quickTimer = null;
 app.addEventListener('input', e => {
   const el = e.target;
+  // Dictation types as you talk; 1.8 seconds with no new words = done, so check it.
+  if (el.id === 'vquick') { clearTimeout(quickTimer); quickTimer = setTimeout(() => { const v = (document.getElementById('vquick')?.value || '').trim(); if (v && /\d|[a-z]{3}/i.test(v)) voiceHeard(v); }, 1800); return; }
   if (el.id === 'imptext') { st.admin.importText = el.value; const pv = document.getElementById('impprev'); if (pv) pv.innerHTML = importPreview(); return; }
   if (el.id === 'bq') { st.bumpQuery = el.value; const b = document.getElementById('blist'); if (b) b.innerHTML = bumpList(el.value.trim().toLowerCase()); return; }
   editField(el, false);
@@ -852,7 +858,8 @@ function editField(el, isChange) {
   if (el.dataset.c && A.courseDraft) { A.courseDraft[el.dataset.c] = el.value; }
 }
 
-app.addEventListener('keydown', e => { if (e.target.id === 'vtext' && e.key === 'Enter') { e.preventDefault(); const v = e.target.value.trim(); if (v) voiceHeard(v); } });
+app.addEventListener('keydown', e => { if ((e.target.id === 'vtext' || e.target.id === 'vquick') && e.key === 'Enter') { clearTimeout(quickTimer); }
+  if ((e.target.id === 'vtext' || e.target.id === 'vquick') && e.key === 'Enter') { e.preventDefault(); const v = e.target.value.trim(); if (v) voiceHeard(v); } });
 app.addEventListener('submit', async e => {
   if (e.target.id !== 'codeform') return;
   e.preventDefault();
