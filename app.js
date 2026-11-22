@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 12;
+const APP_V = 13;
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
 const SB_KEY = 'sb_publishable_sOMW8zFhuCgeSGN_EqISYQ_kh5Bc3ND';
@@ -327,7 +327,7 @@ function voicePanel(grp) {
   let h = '<div class="card" style="border:2px solid var(--g2)">';
   if (V.mode === 'listening') {
     h += '<h3 style="margin-top:0">' + MIC + 'Listening…</h3><p class="small muted">Say each name and score, like “' + esc(grp.rows[0].name.split(' ')[0]) + ' 5, ' + esc((grp.rows[1] || grp.rows[0]).name.split(' ')[0]) + ' par”.</p>' +
-      '<div style="min-height:24px;font-size:17px">' + esc(V.live || '') + '</div><button class="btn sec" id="vcancel" style="width:100%;margin-top:8px">Cancel</button>';
+      '<div id="vlive" style="min-height:24px;font-size:17px">' + esc(V.live || '') + '</div><div class="row2" style="margin-top:8px"><button class="btn sec" id="vcancel">Cancel</button><button class="btn" id="vdone">Done</button></div>';
   } else if (V.mode === 'type') {
     h += '<h3 style="margin-top:0">Say or type the scores</h3><p class="small muted">' + esc(V.msg || 'Tap the microphone on your keyboard and say the scores.') + ' Example: “' + esc(names.split(', ')[0]) + ' 5, ' + esc(names.split(', ')[1] || names.split(', ')[0]) + ' par”.</p>' +
       '<input class="in" id="vtext" autocomplete="off" placeholder="Benny 5, Omar par…" value="' + esc(V.text || '') + '">' +
@@ -375,22 +375,41 @@ function voiceHeard(text) {
 }
 function voiceStart() {
   if (!SR) { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: '' }; render(); const i = document.getElementById('vtext'); if (i) i.focus(); return; }
-  try {
-    recog = new SR(); recog.lang = 'en-US'; recog.interimResults = true; recog.maxAlternatives = 1; recog.continuous = false;
-    let final = '';
-    recog.onresult = ev => {
-      let interim = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) final += t + ' '; else interim += t; }
-      st.voice.live = (final + interim).trim();
-      const el = document.querySelector('.card div[style*="min-height:24px"]'); if (el) el.textContent = st.voice.live;
-    };
-    recog.onerror = ev => { recog = null; st.voice = { mode: 'type', text: st.voice.live || '', live: '', parsed: null, msg: ev.error === 'not-allowed' ? 'The microphone is blocked for this site, so type it or use the keyboard mic.' : 'I couldn’t hear that.' }; render(); };
-    recog.onend = () => { if (st.voice.mode !== 'listening') return; recog = null; const t = (final || st.voice.live || '').trim(); if (t) voiceHeard(t); else { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: 'I didn’t hear anything.' }; render(); } };
-    st.voice = { mode: 'listening', text: '', live: '', parsed: null, msg: '' }; render();
-    recog.start();
-  } catch (e) { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: '' }; render(); }
+  voiceStop(); // close any earlier listening session first (iPhone only allows one at a time)
+  let r;
+  try { r = new SR(); } catch (e) { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: '' }; render(); return; }
+  recog = r; r.lang = 'en-US'; r.interimResults = true; r.maxAlternatives = 1; r.continuous = false;
+  let final = '', done = false, silence = null, heardAny = false;
+  const timers = [];
+  // We decide when listening is over (iPhone doesn't always tell us), so it can never get stuck.
+  const finish = (why) => {
+    if (done || recog !== r) return;
+    done = true; timers.forEach(clearTimeout); clearTimeout(silence);
+    recogFinish = null; recog = null;
+    try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch { /* */ }
+    const t = (final.trim() || st.voice.live || '').trim();
+    if (t) voiceHeard(t);
+    else { st.voice = { mode: 'type', text: '', live: '', parsed: null, msg: why === 'error-mic' ? 'The microphone is blocked for this site, so type it or use the keyboard mic.' : 'I didn’t hear anything. Tap the mic on your keyboard, or tap Try again.' }; render(); }
+  };
+  recogFinish = () => finish('done');
+  r.onresult = ev => {
+    if (recog !== r) return;
+    heardAny = true;
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) final += t + ' '; else interim += t; }
+    st.voice.live = (final + interim).trim();
+    const el = document.getElementById('vlive'); if (el) el.textContent = st.voice.live;
+    clearTimeout(silence); silence = setTimeout(() => finish('quiet'), 1800); // 1.8 seconds of quiet = done talking
+  };
+  r.onerror = ev => { if (recog !== r) return; if (ev.error === 'aborted') return; finish(ev.error === 'not-allowed' ? 'error-mic' : 'error'); };
+  r.onend = () => finish('end');
+  timers.push(setTimeout(() => { if (!heardAny) finish('nothing'); }, 7000));
+  timers.push(setTimeout(() => finish('max'), 15000));
+  st.voice = { mode: 'listening', text: '', live: '', parsed: null, msg: '' }; render();
+  try { r.start(); } catch (e) { finish('error'); }
 }
-function voiceStop() { if (recog) { try { recog.onend = null; recog.abort(); } catch { /* */ } recog = null; } }
+let recogFinish = null;
+function voiceStop() { recogFinish = null; if (recog) { const r = recog; recog = null; try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch { /* */ } } }
 function voiceSave() {
   const P = st.voice.parsed; if (!P) return;
   if (P.hole) st.hole = P.hole;
@@ -705,6 +724,7 @@ app.addEventListener('click', async e => {
   if (t.id === 'voice') { voiceStart(); return; }
   if (t.id === 'vcancel') { voiceStop(); st.voice = { mode: 'idle', text: '', live: '', parsed: null, msg: '' }; render(); return; }
   if (t.id === 'vretry') { voiceStop(); voiceStart(); return; }
+  if (t.id === 'vdone') { if (recogFinish) recogFinish(); return; }
   if (t.id === 'vgo') { const v = (document.getElementById('vtext')?.value || '').trim(); if (v) voiceHeard(v); return; }
   if (t.id === 'vsave') { voiceSave(); return; }
   if (t.dataset.groupclear) { st.group = null; LS.del('golf.group'); render(); return; }
