@@ -1,0 +1,15 @@
+{
+  "name": "4S Scoring",
+  "short_name": "4S Scoring",
+  "description": "Swing · Stick · Sink · Score — live golf scoring, bumps and leaderboards",
+  "start_url": "./#/board",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f1ea",
+  "theme_color": "#1f4d2b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

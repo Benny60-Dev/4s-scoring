@@ -1,7 +1,7 @@
 // 4S Scoring offline helper: keeps a copy of the app on the phone so it opens with no signal.
 // Scores and round data are kept separately by the app itself (saved on the phone).
 const CACHE = '4s-app-v1';
-const STATIC = ['./', 'index.html', 'logo-640.webp', 'mark-120.webp', 'mark-120.png', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon-64.png'];
+const STATIC = ['./', 'index.html', 'manifest.webmanifest', 'logo-640.webp', 'mark-120.webp', 'mark-120.png', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon-64.png'];
 
 async function precache() {
   const c = await caches.open(CACHE);
