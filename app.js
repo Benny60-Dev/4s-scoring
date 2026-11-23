@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 31;
+const APP_V = 32;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -61,7 +61,7 @@ try { queue = JSON.parse(LS.get('golf.queue') || '[]'); } catch { queue = []; }
 
 function view() {
   const h = (location.hash || '').replace(/^#\/?/, '').split('/')[0];
-  return ['board', 'score', 'check', 'bumps', 'admin'].includes(h) ? h : 'board';
+  return ['board', 'score', 'check', 'bumps', 'admin', 'tv'].includes(h) ? h : 'board';
 }
 function go(v) { location.hash = '#/' + v; }
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
@@ -786,8 +786,33 @@ function fixT(d) { d = d || {}; const n = v => (v === '' || v === null || v === 
 function nameOf(id) { return st.players.find(p => p.id === id)?.name || 'Player'; }
 
 // ---------- render + events ----------
+// ---------- TV board (for the show board / any big screen): rotates through the boards on its own ----------
+function tvPanels() {
+  const K = st.calc;
+  if (!st.round || !K || !K.rows.length) return [{ title: '4S Scoring', html: '<div class="empty" style="font-size:2.4vw">Waiting for today’s round…</div>' }];
+  const side = (arr) => '<div class="tvgrid" style="grid-template-columns:repeat(' + Math.min(Math.max(arr.length, 1), 3) + ',minmax(0,1fr))">' + arr.map(x => '<div>' + x + '</div>').join('') + '</div>';
+  const fb = game => flightBoards(game).split('</table>').filter(x => x.trim()).map(x => x + '</table>');
+  const P = [];
+  if (K.net.length) P.push({ title: 'Net leaderboard', html: side(fb('net')) });
+  if (K.gross.length) P.push({ title: 'Gross leaderboard', html: side(fb('gross')) });
+  P.push({ title: 'Skins', html: side([skinsTable('Gross skins', K.gSkins), skinsTable('Net skins', K.nSkins)]) });
+  const dz = deuceView().split('</table>').filter(x => x.trim()).map(x => x + '</table>');
+  P.push({ title: 'Deuce pot' + (K.purseList.length ? ' & money' : ''), html: side(K.purseList.length ? [dz.join(''), moneyView()] : dz) });
+  return P;
+}
+function tvView() {
+  const P = tvPanels(); const k = (st.tvIdx || 0) % P.length; const r = st.round;
+  const now = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return '<div class="tvwrap"><div class="tvhead"><img src="' + MARK_URL + '" alt=""><div class="grow"><div class="tvt">' + esc(r ? (r.name || 'Round') : APP_NAME) +
+    (r ? ' <span class="badge ' + (r.status === 'final' ? 'final">Final' : 'live">Live') + '</span>' : '') + '</div><div class="tvs">' + (r ? esc(fmtDate(r.play_date)) + ' · ' + esc(st.course?.name || '') : '') + '</div></div>' +
+    '<div class="tvpanel">' + esc(P[k].title) + '</div><div class="tvclock">' + now + '</div></div>' +
+    '<div class="tvbody">' + P[k].html + '</div><div class="tvdots">' + P.map((p, j) => '<span class="' + (j === k ? 'on' : '') + '">' + esc(p.title) + '</span>').join('') + '</div></div>';
+}
+setInterval(() => { if (view() === 'tv') { st.tvIdx = (st.tvIdx || 0) + 1; render(); } }, 15000);
 function render() {
   const v = view();
+  document.body.classList.toggle('tv', v === 'tv');
+  if (v === 'tv') { st.open = {}; app.innerHTML = st.loading ? '<div class="empty">Loading…</div>' : tvView(); return; }
   let body = '';
   if (st.loading) body = '<div class="empty">Loading…</div>';
   else if (v === 'board') body = boardView();
