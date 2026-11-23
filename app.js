@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 32;
+const APP_V = 33;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -796,6 +796,17 @@ function tvPanels() {
   if (K.net.length) P.push({ title: 'Net leaderboard', html: side(fb('net')) });
   if (K.gross.length) P.push({ title: 'Gross leaderboard', html: side(fb('gross')) });
   P.push({ title: 'Skins', html: side([skinsTable('Gross skins', K.gSkins), skinsTable('Net skins', K.nSkins)]) });
+  // Scorecards: every group, hole by hole
+  const c = st.course, row = (r) => {
+    let t = '<tr><td class="l name">' + esc(r.name) + (r.dnf ? ' <span style="color:var(--give);font-size:.8vw">DNF</span>' : '') + '</td>';
+    for (let i = 0; i < 18; i++) { t += '<td>' + (r.holes[i] === null ? '' : mark(r.holes[i], Number(c.holes[i].par), r.picked[i])) + '</td>'; if (i === 8) t += '<td class="t">' + (r.out || '') + '</td>'; }
+    return t + '<td class="t">' + (r.inn || '') + '</td><td class="t">' + (r.gross || '') + '</td></tr>';
+  };
+  let cards = '<table class="lb tvcard"><thead><tr><th class="l">Hole</th>' + c.holes.map((h, i) => '<th>' + (i + 1) + '</th>' + (i === 8 ? '<th>Out</th>' : '')).join('') + '<th>In</th><th>Tot</th></tr>' +
+    '<tr class="par"><th class="l">Par</th>' + c.holes.map((h, i) => '<th>' + h.par + '</th>' + (i === 8 ? '<th>' + c.holes.slice(0, 9).reduce((a, x) => a + Number(x.par), 0) + '</th>' : '')).join('') + '<th>' + c.holes.slice(9).reduce((a, x) => a + Number(x.par), 0) + '</th><th>' + K.parTotal + '</th></tr></thead><tbody>';
+  K.groups.forEach(g => { cards += '<tr class="grp"><td colspan="22">Group ' + g.group + '</td></tr>' + g.rows.map(row).join(''); });
+  cards += '</tbody></table>';
+  P.splice(2, 0, { title: 'Scorecards', html: cards });
   const dz = deuceView().split('</table>').filter(x => x.trim()).map(x => x + '</table>');
   P.push({ title: 'Deuce pot' + (K.purseList.length ? ' & money' : ''), html: side(K.purseList.length ? [dz.join(''), moneyView()] : dz) });
   return P;
@@ -806,13 +817,13 @@ function tvView() {
   return '<div class="tvwrap"><div class="tvhead"><img src="' + MARK_URL + '" alt=""><div class="grow"><div class="tvt">' + esc(r ? (r.name || 'Round') : APP_NAME) +
     (r ? ' <span class="badge ' + (r.status === 'final' ? 'final">Final' : 'live">Live') + '</span>' : '') + '</div><div class="tvs">' + (r ? esc(fmtDate(r.play_date)) + ' · ' + esc(st.course?.name || '') : '') + '</div></div>' +
     '<div class="tvpanel">' + esc(P[k].title) + '</div><div class="tvclock">' + now + '</div></div>' +
-    '<div class="tvbody">' + P[k].html + '</div><div class="tvdots">' + P.map((p, j) => '<span class="' + (j === k ? 'on' : '') + '">' + esc(p.title) + '</span>').join('') + '</div></div>';
+    '<div class="tvbody">' + P[k].html + '</div><div class="tvdots">' + P.map((p, j) => '<button data-tvgo="' + j + '" class="' + (j === k ? 'on' : '') + '">' + esc(p.title) + '</button>').join('') + '</div></div>';
 }
-setInterval(() => { if (view() === 'tv') { st.tvIdx = (st.tvIdx || 0) + 1; render(); } }, 15000);
+setInterval(() => { if (view() === 'tv' && Date.now() > (st.tvHold || 0)) { st.tvIdx = (st.tvIdx || 0) + 1; st.open = {}; render(); } }, 15000);
 function render() {
   const v = view();
   document.body.classList.toggle('tv', v === 'tv');
-  if (v === 'tv') { st.open = {}; app.innerHTML = st.loading ? '<div class="empty">Loading…</div>' : tvView(); return; }
+  if (v === 'tv') { app.innerHTML = st.loading ? '<div class="empty">Loading…</div>' : tvView(); return; }
   let body = '';
   if (st.loading) body = '<div class="empty">Loading…</div>';
   else if (v === 'board') body = boardView();
@@ -829,7 +840,8 @@ app.addEventListener('click', async e => {
   const A = st.admin;
   if (t.dataset.go) { go(t.dataset.go); return; }
   if (t.dataset.tab) { st.tab = t.dataset.tab; LS.set('golf.tab', st.tab); render(); return; }
-  if (t.dataset.open) { st.open[t.dataset.open] = !st.open[t.dataset.open]; render(); return; }
+  if (t.dataset.open) { st.open[t.dataset.open] = !st.open[t.dataset.open]; if (view() === 'tv') st.tvHold = Date.now() + 30000; render(); return; }
+  if (t.dataset.tvgo !== undefined) { st.tvIdx = Number(t.dataset.tvgo); st.tvHold = Date.now() + 30000; st.open = {}; render(); return; }
   if (t.dataset.group) { st.group = Number(t.dataset.group); LS.set('golf.group', st.group); st.hole = firstOpenHole(); render(); window.scrollTo(0, 0); return; }
   if (t.dataset.dnf) { setDnf(t.dataset.dnf); return; }
   if (t.id === 'voice') { voiceStart(); return; }
