@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 34;
+const APP_V = 35;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -56,7 +56,7 @@ const ICON = {
 
 // ---------- state ----------
 const st = {
-  courses: [], rounds: [], players: [],
+  courses: [], rounds: [], players: [], tvStay: LS.get('golf.tvstay') || '',
   roundId: null, round: null, course: null, entries: [], scores: [], checks: [],
   calc: null, err: '', loading: true,
   tab: LS.get('golf.tab') || 'gross', open: {},
@@ -803,9 +803,9 @@ function tvPanels() {
   const side = (arr) => '<div class="tvgrid" style="grid-template-columns:repeat(' + Math.min(Math.max(arr.length, 1), 3) + ',minmax(0,1fr))">' + arr.map(x => '<div>' + x + '</div>').join('') + '</div>';
   const fb = game => flightBoards(game).split('</table>').filter(x => x.trim()).map(x => x + '</table>');
   const P = [];
-  if (K.net.length) P.push({ title: 'Net leaderboard', html: side(fb('net')) });
-  if (K.gross.length) P.push({ title: 'Gross leaderboard', html: side(fb('gross')) });
-  P.push({ title: 'Skins', html: side([skinsTable('Gross skins', K.gSkins), skinsTable('Net skins', K.nSkins)]) });
+  if (K.net.length) P.push({ key: 'net', title: 'Net leaderboard', html: side(fb('net')) });
+  if (K.gross.length) P.push({ key: 'gross', title: 'Gross leaderboard', html: side(fb('gross')) });
+  P.push({ key: 'skins', title: 'Skins', html: side([skinsTable('Gross skins', K.gSkins), skinsTable('Net skins', K.nSkins)]) });
   // Scorecards: every group, hole by hole
   const c = st.course, row = (r) => {
     let t = '<tr><td class="l name">' + esc(r.name) + (r.dnf ? ' <span style="color:var(--give);font-size:.8vw">DNF</span>' : '') + '</td>';
@@ -816,20 +816,24 @@ function tvPanels() {
     '<tr class="par"><th class="l">Par</th>' + c.holes.map((h, i) => '<th>' + h.par + '</th>' + (i === 8 ? '<th>' + c.holes.slice(0, 9).reduce((a, x) => a + Number(x.par), 0) + '</th>' : '')).join('') + '<th>' + c.holes.slice(9).reduce((a, x) => a + Number(x.par), 0) + '</th><th>' + K.parTotal + '</th></tr></thead><tbody>';
   K.groups.forEach(g => { cards += '<tr class="grp"><td colspan="22">Group ' + g.group + '</td></tr>' + g.rows.map(row).join(''); });
   cards += '</tbody></table>';
-  P.splice(2, 0, { title: 'Scorecards', html: cards });
+  P.splice(2, 0, { key: 'cards', title: 'Scorecards', html: cards });
   const dz = deuceView().split('</table>').filter(x => x.trim()).map(x => x + '</table>');
-  P.push({ title: 'Deuce pot' + (K.purseList.length ? ' & money' : ''), html: side(K.purseList.length ? [dz.join(''), moneyView()] : dz) });
+  P.push({ key: 'deuce', title: 'Deuce pot' + (K.purseList.length ? ' & money' : ''), html: side(K.purseList.length ? [dz.join(''), moneyView()] : dz) });
   return P;
 }
+function tvLock() { const k = (location.hash || '').replace(/^#\/?/, '').split('/')[1]; return k || st.tvStay || ''; }
 function tvView() {
-  const P = tvPanels(); const k = (st.tvIdx || 0) % P.length; const r = st.round;
+  const P = tvPanels(); const lock = tvLock(); const li = lock ? P.findIndex(p => p.key === lock) : -1;
+  if (li >= 0) st.tvIdx = li;
+  const k = (st.tvIdx || 0) % P.length; const r = st.round;
   const now = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   return '<div class="tvwrap"><div class="tvhead"><img src="' + MARK_URL + '" alt=""><div class="grow"><div class="tvt">' + esc(r ? (r.name || 'Round') : APP_NAME) +
     (r ? ' <span class="badge ' + (r.status === 'final' ? 'final">Final' : 'live">Live') + '</span>' : '') + '</div><div class="tvs">' + (r ? esc(fmtDate(r.play_date)) + ' · ' + esc(st.course?.name || '') : '') + '</div></div>' +
-    '<div class="tvpanel">' + esc(P[k].title) + '</div><div class="tvclock">' + now + '</div></div>' +
-    '<div class="tvbody">' + P[k].html + '</div><div class="tvdots">' + P.map((p, j) => '<button data-tvgo="' + j + '" class="' + (j === k ? 'on' : '') + '">' + esc(p.title) + '</button>').join('') + '</div></div>';
+    '<div class="tvpanel">' + (li >= 0 ? '📌 ' : '') + esc(P[k].title) + '</div><div class="tvclock">' + now + '</div></div>' +
+    '<div class="tvbody">' + P[k].html + '</div><div class="tvdots">' + P.map((p, j) => '<button data-tvgo="' + j + '" class="' + (j === k ? 'on' : '') + '">' + esc(p.title) + '</button>').join('') +
+    '<button class="stay' + (li >= 0 ? ' on' : '') + '" data-tvstay="' + esc(P[k].key || '') + '">' + (li >= 0 ? '▶ Rotate again' : '📌 Stay on this screen') + '</button></div></div>';
 }
-setInterval(() => { if (view() === 'tv' && Date.now() > (st.tvHold || 0)) { st.tvIdx = (st.tvIdx || 0) + 1; st.open = {}; render(); } }, 15000);
+setInterval(() => { if (view() === 'tv' && !tvLock() && Date.now() > (st.tvHold || 0)) { st.tvIdx = (st.tvIdx || 0) + 1; st.open = {}; render(); } }, 15000);
 function render() {
   const v = view();
   document.body.classList.toggle('tv', v === 'tv');
@@ -851,7 +855,11 @@ app.addEventListener('click', async e => {
   if (t.dataset.go) { go(t.dataset.go); return; }
   if (t.dataset.tab) { st.tab = t.dataset.tab; LS.set('golf.tab', st.tab); render(); return; }
   if (t.dataset.open) { st.open[t.dataset.open] = !st.open[t.dataset.open]; if (view() === 'tv') st.tvHold = Date.now() + 30000; render(); return; }
-  if (t.dataset.tvgo !== undefined) { st.tvIdx = Number(t.dataset.tvgo); st.tvHold = Date.now() + 30000; st.open = {}; render(); return; }
+  if (t.dataset.tvstay !== undefined) {
+    if (tvLock()) { st.tvStay = ''; if ((location.hash.split('/')[2] || '')) location.hash = '#/tv'; } else st.tvStay = t.dataset.tvstay;
+    LS.set('golf.tvstay', st.tvStay); render(); return;
+  }
+  if (t.dataset.tvgo !== undefined) { if (st.tvStay) { const P = tvPanels(); st.tvStay = P[Number(t.dataset.tvgo)]?.key || st.tvStay; LS.set('golf.tvstay', st.tvStay); } st.tvIdx = Number(t.dataset.tvgo); st.tvHold = Date.now() + 30000; st.open = {}; render(); return; }
   if (t.dataset.group) { st.group = Number(t.dataset.group); LS.set('golf.group', st.group); st.hole = firstOpenHole(); render(); window.scrollTo(0, 0); return; }
   if (t.dataset.dnf) { setDnf(t.dataset.dnf); return; }
   if (t.id === 'voice') { voiceStart(); return; }
