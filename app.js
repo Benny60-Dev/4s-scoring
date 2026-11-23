@@ -1,5 +1,5 @@
 import * as C from './calc.js?v=12';
-const APP_V = 33;
+const APP_V = 34;
 const VOICE_ON = false; // voice entry is parked for now
 
 const SB_URL = 'https://bkaruwhaujnhahdbgnob.supabase.co';
@@ -16,10 +16,19 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
   del(k) { try { localStorage.removeItem(k); } catch { /* */ } },
 };
+// Every answer from the database is also saved on the phone. With no signal, the app uses the saved copy.
 async function api(path) {
-  const r = await fetch(SB_URL + '/rest/v1/' + path, { headers: { apikey: SB_KEY } });
+  let r;
+  try { r = await fetch(SB_URL + '/rest/v1/' + path, { headers: { apikey: SB_KEY } }); }
+  catch (e) {
+    const hit = LS.get('golf.c:' + path);
+    if (hit) { const o = JSON.parse(hit); st.offline = true; st.offlineAt = Math.min(st.offlineAt || o.t, o.t); return o.d; }
+    st.offline = true; throw new Error('No signal, and this phone hasn’t saved this round yet. Open 4S once where you have signal.');
+  }
   if (!r.ok) throw new Error('Could not load data (' + r.status + ')');
-  return r.json();
+  const d = await r.json();
+  try { LS.set('golf.c:' + path, JSON.stringify({ t: Date.now(), d })); } catch (e) { /* phone storage full: skip saving */ }
+  return d;
 }
 async function rpc(fn, body) {
   const r = await fetch(SB_URL + '/rest/v1/rpc/' + fn, {
@@ -110,6 +119,7 @@ function recalc() {
   st.calc = st.round && st.course ? C.computeRound({ round: st.round, course: st.course, entries: st.entries, players: st.players, scores: st.scores }) : null;
 }
 async function refresh(full) {
+  st.offline = false; st.offlineAt = 0;
   try {
     if (full) await loadBase();
     await loadRound();
@@ -831,7 +841,7 @@ function render() {
   else if (v === 'check') body = checkView();
   else if (v === 'bumps') body = bumpsView();
   else body = adminView();
-  app.innerHTML = header() + '<main class="wrap">' + (st.err ? '<div class="err">' + esc(st.err) + '</div>' : '') + body + '</main>' + bottomNav(v);
+  app.innerHTML = header() + '<main class="wrap">' + (st.offline && !st.err ? '<div class="offbar">📵 No signal — showing what this phone saved at ' + new Date(st.offlineAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '. Keep entering scores; they send on their own when you’re back in range.</div>' : '') + (st.err ? '<div class="err">' + esc(st.err) + '</div>' : '') + body + '</main>' + bottomNav(v);
 }
 
 app.addEventListener('click', async e => {
@@ -1095,6 +1105,7 @@ async function checkUpdate() {
 document.addEventListener('visibilitychange', async () => { if (!document.hidden) checkUpdate(); if (!document.hidden && view() !== 'admin') { await refresh(false); render(); scheduleFlush(100); } });
 
 (async () => {
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   checkUpdate(); // an old saved copy switches to the newest version right away
   await refresh(true);
   try { const R = JSON.parse(LS.get('golf.resume') || 'null'); LS.del('golf.resume'); if (R && Date.now() - R.t < 300000) { st.hole = R.hole; st.voice.msg = R.msg; } } catch { /* */ }

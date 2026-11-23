@@ -205,3 +205,4 @@ body.tv table.tvcard tr.par th{background:#55575c;font-size:calc(.9*var(--u))}
 body.tv table.tvcard tr.grp td{background:#e9e6dc;font-weight:800;text-align:left;padding-left:calc(.6*var(--u));font-size:calc(.9*var(--u))}
 body.tv .mk{width:calc(1.7*var(--u));height:calc(1.7*var(--u));font-size:calc(1*var(--u))}
 body.tv .scrow td{padding:calc(.6*var(--u))}
+.offbar{background:#fff4dc;border:1px solid #f0d29a;color:#7a5200;border-radius:12px;padding:9px 12px;margin:0 0 10px;font-size:13.5px;font-weight:600}
